@@ -1,0 +1,23 @@
+[package]
+name = "descent_null"
+version = "0.1.0"
+edition = "2021"
+default-run = "descent_null"
+
+[lib]
+name = "descent_null"
+path = "src/lib.rs"
+
+[[bin]]
+name = "descent_null"
+path = "src/main.rs"
+
+[[bin]]
+name = "descent_null_tui"
+path = "src/bin/tui.rs"
+
+[dependencies]
+macroquad = "0.4"
+crossterm = "0.27"
+ratatui = "0.26"
+rand = "0.8"
