@@ -1,6 +1,6 @@
 [package]
 name = "descent_null"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 default-run = "descent_null"
 
@@ -12,12 +12,25 @@ path = "src/lib.rs"
 name = "descent_null"
 path = "src/main.rs"
 
-[[bin]]
-name = "descent_null_tui"
-path = "src/bin/tui.rs"
-
 [dependencies]
-macroquad = "0.4"
-crossterm = "0.27"
-ratatui = "0.26"
-rand = "0.8"
+bevy = { version = "0.17", default-features = false, features = [
+    "std",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_log",
+    "bevy_mesh",
+    "bevy_render",
+    "bevy_sprite",
+    "bevy_sprite_render",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_ui_render",
+    "bevy_window",
+    "bevy_winit",
+    "default_font",
+    "multi_threaded",
+    "png",
+] }
+avian2d = "0.4"
