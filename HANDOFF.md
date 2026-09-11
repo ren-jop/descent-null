@@ -1,5 +1,7 @@
 # Handoff prompt: continuing Descent: Null
 
+**Superseded for architecture.** The grid prototype this document describes has been replaced. Current plan: `docs/REBUILD_PLAN.md`. Keep this file only as historical context for what the first prototype contained.
+
 Paste everything below this line to another AI (or a fresh session with
 me) along with the project files, to continue development from exactly
 where this session left off.
