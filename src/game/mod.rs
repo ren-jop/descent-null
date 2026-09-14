@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use crate::body::BodyPlugin;
 use crate::physics::PhysicsGameplayPlugin;
 use crate::player::PlayerPlugin;
+use crate::survival::SurvivalPlugin;
 use crate::ui::HudPlugin;
 use crate::world::ProvingGroundPlugin;
 
@@ -27,6 +28,7 @@ impl Plugin for GamePlugin {
             PhysicsPlugins::default().with_length_unit(20.0),
             PhysicsGameplayPlugin,
             BodyPlugin,
+            SurvivalPlugin,
             PlayerPlugin,
             ProvingGroundPlugin,
             HudPlugin,

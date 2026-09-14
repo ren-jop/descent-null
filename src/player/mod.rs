@@ -5,6 +5,7 @@ use bevy::prelude::*;
 
 use crate::body::Body;
 use crate::physics::CharacterControllerBundle;
+use crate::survival::Survival;
 
 pub struct PlayerPlugin;
 
@@ -40,6 +41,7 @@ fn spawn_player(
         GravityScale(1.5),
         TransformInterpolation,
         Body::default(),
+        Survival::default(),
     ));
 
     commands.spawn((Camera2d, FollowCamera, Transform::from_xyz(SPAWN.x, SPAWN.y, 0.0)));
@@ -64,15 +66,16 @@ fn follow_camera(
 
 fn reset_player(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(&mut Transform, &mut LinearVelocity, &mut Body), With<Player>>,
+    mut query: Query<(&mut Transform, &mut LinearVelocity, &mut Body, &mut Survival), With<Player>>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyR) {
         return;
     }
-    let Ok((mut transform, mut velocity, mut body)) = query.single_mut() else {
+    let Ok((mut transform, mut velocity, mut body, mut survival)) = query.single_mut() else {
         return;
     };
     transform.translation = SPAWN;
     *velocity = LinearVelocity::ZERO;
     body.0.clear();
+    survival.0.reset();
 }

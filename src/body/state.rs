@@ -2,12 +2,14 @@
 //! wrapped in a Bevy `Component` in `integration.rs` so this stays testable
 //! without spinning up an `App`.
 
+use super::cardio::Cardio;
 use super::region::BodyRegion;
 use super::wound::Wound;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BodyState {
     wounds: Vec<Wound>,
+    cardio: Cardio,
 }
 
 impl BodyState {
@@ -32,17 +34,47 @@ impl BodyState {
         self.wounds.iter().map(|w| w.pain).sum()
     }
 
-    /// Blood volume lost per second across every untreated wound. There is
-    /// no cardiovascular model consuming this yet (milestone 2, later
-    /// slice) — for now it's informational, surfaced on the HUD.
+    /// Blood volume lost per second across every untreated wound.
     pub fn total_bleed_rate(&self) -> f32 {
         self.wounds.iter().map(|w| w.bleed_rate).sum()
     }
 
-    /// Clears every wound — used when the player resets to the starting
-    /// ledge, so repeated testing doesn't accumulate injuries forever.
+    /// Advances the cardiovascular model by `dt` seconds: applies bleeding
+    /// from the current wound list, then lets passive regen claw a little
+    /// back. Call once per frame.
+    pub fn tick(&mut self, dt: f32) {
+        let bleed = self.total_bleed_rate() * dt;
+        if bleed > 0.0 {
+            self.cardio.apply_drain(bleed);
+        }
+        self.cardio.regen(dt);
+    }
+
+    /// Drains blood volume from a source other than a wound — starvation,
+    /// dehydration, anything else that should erode the same consciousness
+    /// pipeline instead of needing its own KO/death logic.
+    pub fn apply_external_drain(&mut self, amount: f32) {
+        self.cardio.apply_drain(amount);
+    }
+
+    pub fn blood_volume(&self) -> f32 {
+        self.cardio.blood_volume()
+    }
+
+    pub fn is_ko(&self) -> bool {
+        self.cardio.is_ko()
+    }
+
+    pub fn is_dead(&self) -> bool {
+        self.cardio.is_dead()
+    }
+
+    /// Clears every wound and restores the cardiovascular state to full —
+    /// used when the player resets to the starting ledge, so repeated
+    /// testing (or dying) doesn't leave old damage lying around.
     pub fn clear(&mut self) {
         self.wounds.clear();
+        self.cardio = Cardio::default();
     }
 }
 
@@ -85,5 +117,52 @@ mod tests {
         let mut body = BodyState::default();
         body.apply_wound(landing_wound(BodyRegion::Head, 0.95).unwrap());
         assert_eq!(body.wounds()[0].kind, WoundKind::Fracture);
+    }
+
+    #[test]
+    fn fresh_body_is_conscious_and_full_blood() {
+        let body = BodyState::default();
+        assert_eq!(body.blood_volume(), 1.0);
+        assert!(!body.is_ko());
+        assert!(!body.is_dead());
+    }
+
+    #[test]
+    fn ticking_with_a_bleeding_wound_drains_blood_over_time() {
+        let mut body = BodyState::default();
+        body.apply_wound(landing_wound(BodyRegion::LeftLeg, 0.9).unwrap());
+        let before = body.blood_volume();
+        for _ in 0..60 {
+            body.tick(1.0 / 60.0);
+        }
+        assert!(body.blood_volume() < before);
+    }
+
+    #[test]
+    fn enough_bleeding_eventually_kills() {
+        let mut body = BodyState::default();
+        body.apply_wound(landing_wound(BodyRegion::LeftLeg, 1.0).unwrap());
+        body.apply_wound(landing_wound(BodyRegion::RightLeg, 1.0).unwrap());
+        for _ in 0..600 {
+            body.tick(1.0 / 60.0);
+        }
+        assert!(body.is_dead());
+    }
+
+    #[test]
+    fn external_drain_can_ko_without_any_wounds() {
+        let mut body = BodyState::default();
+        body.apply_external_drain(0.7);
+        assert!(body.is_ko());
+        assert_eq!(body.wound_count(), 0);
+    }
+
+    #[test]
+    fn clear_restores_full_blood_volume() {
+        let mut body = BodyState::default();
+        body.apply_external_drain(0.9);
+        body.clear();
+        assert_eq!(body.blood_volume(), 1.0);
+        assert!(!body.is_dead());
     }
 }

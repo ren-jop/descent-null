@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use crate::body::Body;
 use crate::physics::{Grounded, LandingImpact};
 use crate::player::Player;
+use crate::survival::Survival;
 
 pub struct HudPlugin;
 
@@ -53,11 +54,11 @@ fn capture_landings(mut events: MessageReader<LandingImpact>, mut last: ResMut<L
 }
 
 fn update_hud(
-    player: Query<(&LinearVelocity, Option<&Grounded>, &Body), With<Player>>,
+    player: Query<(&LinearVelocity, Option<&Grounded>, &Body, &Survival), With<Player>>,
     last: Res<LastLanding>,
     mut hud: Query<&mut Text, With<HudText>>,
 ) {
-    let Ok((velocity, grounded, body)) = player.single() else {
+    let Ok((velocity, grounded, body, survival)) = player.single() else {
         return;
     };
     let Ok(mut text) = hud.single_mut() else {
@@ -74,11 +75,25 @@ fn update_hud(
             body.0.total_bleed_rate()
         )
     };
+    let status = if body.0.is_dead() {
+        "   —  YOU DIED, press R"
+    } else if body.0.is_ko() {
+        "   —  UNCONSCIOUS, press R"
+    } else {
+        ""
+    };
+    let vitals = format!(
+        "blood {:.0}%   hunger {:.0}%   thirst {:.0}%{status}",
+        body.0.blood_volume() * 100.0,
+        survival.0.hunger() * 100.0,
+        survival.0.thirst() * 100.0,
+    );
     **text = format!(
-        "DESCENT: NULL  —  milestone 1 physics + early body sim\n\
+        "DESCENT: NULL  —  milestone 1 physics + early survival sim\n\
          WASD/arrows move   Space jump   R reset\n\
          {grounded}   vel ({:.0}, {:.0})\n\
          {body_line}\n\
+         {vitals}\n\
          {}",
         velocity.x,
         velocity.y,
