@@ -3,6 +3,7 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
+use crate::body::Body;
 use crate::physics::CharacterControllerBundle;
 
 pub struct PlayerPlugin;
@@ -38,6 +39,7 @@ fn spawn_player(
         ColliderDensity(2.0),
         GravityScale(1.5),
         TransformInterpolation,
+        Body::default(),
     ));
 
     commands.spawn((Camera2d, FollowCamera, Transform::from_xyz(SPAWN.x, SPAWN.y, 0.0)));
@@ -62,14 +64,15 @@ fn follow_camera(
 
 fn reset_player(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(&mut Transform, &mut LinearVelocity), With<Player>>,
+    mut query: Query<(&mut Transform, &mut LinearVelocity, &mut Body), With<Player>>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyR) {
         return;
     }
-    let Ok((mut transform, mut velocity)) = query.single_mut() else {
+    let Ok((mut transform, mut velocity, mut body)) = query.single_mut() else {
         return;
     };
     transform.translation = SPAWN;
     *velocity = LinearVelocity::ZERO;
+    body.0.clear();
 }

@@ -3,6 +3,7 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
+use crate::body::Body;
 use crate::physics::{Grounded, LandingImpact};
 use crate::player::Player;
 
@@ -45,28 +46,39 @@ fn spawn_hud(mut commands: Commands) {
 fn capture_landings(mut events: MessageReader<LandingImpact>, mut last: ResMut<LastLanding>) {
     for impact in events.read() {
         last.text = format!(
-            "hard landing  {:.0} u/s  severity {:.2}  (body sim comes in milestone 2)",
+            "hard landing  {:.0} u/s  severity {:.2}",
             impact.downward_speed, impact.severity
         );
     }
 }
 
 fn update_hud(
-    player: Query<(&LinearVelocity, Option<&Grounded>), With<Player>>,
+    player: Query<(&LinearVelocity, Option<&Grounded>, &Body), With<Player>>,
     last: Res<LastLanding>,
     mut hud: Query<&mut Text, With<HudText>>,
 ) {
-    let Ok((velocity, grounded)) = player.single() else {
+    let Ok((velocity, grounded, body)) = player.single() else {
         return;
     };
     let Ok(mut text) = hud.single_mut() else {
         return;
     };
     let grounded = if grounded.is_some() { "grounded" } else { "airborne" };
+    let body_line = if body.0.wound_count() == 0 {
+        "no injuries".to_string()
+    } else {
+        format!(
+            "{} wound(s)   pain {:.1}   bleeding {:.2}/s",
+            body.0.wound_count(),
+            body.0.total_pain(),
+            body.0.total_bleed_rate()
+        )
+    };
     **text = format!(
-        "DESCENT: NULL  —  milestone 1 physics proving ground\n\
+        "DESCENT: NULL  —  milestone 1 physics + early body sim\n\
          WASD/arrows move   Space jump   R reset\n\
          {grounded}   vel ({:.0}, {:.0})\n\
+         {body_line}\n\
          {}",
         velocity.x,
         velocity.y,

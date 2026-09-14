@@ -4,6 +4,7 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
+use crate::body::BodyPlugin;
 use crate::physics::PhysicsGameplayPlugin;
 use crate::player::PlayerPlugin;
 use crate::ui::HudPlugin;
@@ -25,6 +26,7 @@ impl Plugin for GamePlugin {
             // 1 meter ≈ 20 pixels so Avian can tune solver stability.
             PhysicsPlugins::default().with_length_unit(20.0),
             PhysicsGameplayPlugin,
+            BodyPlugin,
             PlayerPlugin,
             ProvingGroundPlugin,
             HudPlugin,
