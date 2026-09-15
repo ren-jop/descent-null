@@ -20,6 +20,9 @@ pub struct Wound {
     /// Blood volume lost per second while untreated. Zero for wounds that
     /// don't bleed (a plain bruise).
     pub bleed_rate: f32,
+    /// Bandaged (stops bleeding) or splinted (removes the fracture
+    /// movement penalty). See `BodyState::treat_*`.
+    pub treated: bool,
 }
 
 /// Severity (from `physics::landing_severity`, 0..=1) at which a hard
@@ -58,6 +61,7 @@ pub fn landing_wound(region: BodyRegion, severity: f32) -> Option<Wound> {
         kind,
         pain: severity * PAIN_PER_SEVERITY,
         bleed_rate,
+        treated: false,
     })
 }
 

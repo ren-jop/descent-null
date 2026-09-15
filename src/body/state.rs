@@ -69,6 +69,68 @@ impl BodyState {
         self.cardio.is_dead()
     }
 
+    /// Restores blood volume directly — a medkit's effect. Clamped at full.
+    pub fn heal_blood_volume(&mut self, amount: f32) {
+        self.cardio.heal(amount);
+    }
+
+    /// Bandages the worst active bleed: stops that wound's bleeding and
+    /// marks it treated. Returns true if there was anything to bandage.
+    pub fn treat_worst_bleeding(&mut self) -> bool {
+        let target = self
+            .wounds
+            .iter_mut()
+            .filter(|w| w.bleed_rate > 0.0)
+            .max_by(|a, b| a.bleed_rate.partial_cmp(&b.bleed_rate).unwrap());
+        match target {
+            Some(wound) => {
+                wound.bleed_rate = 0.0;
+                wound.treated = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// True if a leg fracture is present and hasn't been splinted —
+    /// used to apply the movement penalty.
+    pub fn has_untreated_leg_fracture(&self) -> bool {
+        self.wounds.iter().any(|w| {
+            w.kind == super::wound::WoundKind::Fracture
+                && matches!(w.region, BodyRegion::LeftLeg | BodyRegion::RightLeg)
+                && !w.treated
+        })
+    }
+
+    /// Splints the first untreated fracture. Returns true if there was one.
+    pub fn treat_fracture(&mut self) -> bool {
+        let target = self
+            .wounds
+            .iter_mut()
+            .find(|w| w.kind == super::wound::WoundKind::Fracture && !w.treated);
+        match target {
+            Some(wound) => {
+                wound.treated = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Clears the pain of one untreated wound (any kind) — used as part of
+    /// a medkit's effect alongside `heal_blood_volume`.
+    pub fn treat_pain(&mut self) -> bool {
+        let target = self.wounds.iter_mut().find(|w| !w.treated && w.pain > 0.0);
+        match target {
+            Some(wound) => {
+                wound.pain = 0.0;
+                wound.treated = true;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Clears every wound and restores the cardiovascular state to full —
     /// used when the player resets to the starting ledge, so repeated
     /// testing (or dying) doesn't leave old damage lying around.
@@ -164,5 +226,37 @@ mod tests {
         body.clear();
         assert_eq!(body.blood_volume(), 1.0);
         assert!(!body.is_dead());
+    }
+
+    #[test]
+    fn bandaging_stops_the_worst_bleed() {
+        let mut body = BodyState::default();
+        body.apply_wound(landing_wound(BodyRegion::LeftLeg, 0.9).unwrap());
+        assert!(body.total_bleed_rate() > 0.0);
+        assert!(body.treat_worst_bleeding());
+        assert_eq!(body.total_bleed_rate(), 0.0);
+    }
+
+    #[test]
+    fn bandaging_with_nothing_bleeding_does_nothing() {
+        let mut body = BodyState::default();
+        assert!(!body.treat_worst_bleeding());
+    }
+
+    #[test]
+    fn splinting_clears_the_fracture_penalty_flag() {
+        let mut body = BodyState::default();
+        body.apply_wound(landing_wound(BodyRegion::LeftLeg, 0.95).unwrap());
+        assert!(body.has_untreated_leg_fracture());
+        assert!(body.treat_fracture());
+        assert!(!body.has_untreated_leg_fracture());
+    }
+
+    #[test]
+    fn medkit_heals_blood_volume() {
+        let mut body = BodyState::default();
+        body.apply_external_drain(0.5);
+        body.heal_blood_volume(0.3);
+        assert!((body.blood_volume() - 0.8).abs() < 0.001);
     }
 }

@@ -43,6 +43,11 @@ impl Cardio {
         self.blood_volume = (self.blood_volume + PASSIVE_REGEN_PER_SEC * dt).min(1.0);
     }
 
+    /// Direct restoration — a medkit's effect, not passive regen.
+    pub fn heal(&mut self, amount: f32) {
+        self.blood_volume = (self.blood_volume + amount).min(1.0);
+    }
+
     pub fn is_ko(&self) -> bool {
         self.blood_volume < KO_THRESHOLD
     }

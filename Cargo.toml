@@ -34,3 +34,4 @@ bevy = { version = "0.17", default-features = false, features = [
     "png",
 ] }
 avian2d = "0.4"
+rand = "0.8"

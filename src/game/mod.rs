@@ -5,11 +5,12 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 
 use crate::body::BodyPlugin;
+use crate::items::ItemsPlugin;
 use crate::physics::PhysicsGameplayPlugin;
 use crate::player::PlayerPlugin;
 use crate::survival::SurvivalPlugin;
 use crate::ui::HudPlugin;
-use crate::world::ProvingGroundPlugin;
+use crate::world::CavePlugin;
 
 pub struct GamePlugin;
 
@@ -18,7 +19,7 @@ impl Plugin for GamePlugin {
         app.add_plugins((
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "Descent: Null — physics proving ground".into(),
+                    title: "Descent: Null".into(),
                     resolution: (1280, 800).into(),
                     ..default()
                 }),
@@ -29,8 +30,9 @@ impl Plugin for GamePlugin {
             PhysicsGameplayPlugin,
             BodyPlugin,
             SurvivalPlugin,
+            ItemsPlugin,
             PlayerPlugin,
-            ProvingGroundPlugin,
+            CavePlugin,
             HudPlugin,
         ))
         .insert_resource(ClearColor(Color::srgb(0.06, 0.05, 0.05)))

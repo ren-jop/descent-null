@@ -1,6 +1,5 @@
-//! Milestone 1 world: a hand-built proving ground with floors, slopes,
-//! ledges, a drop shaft, and pushable debris. Procedural caves are Milestone 5.
+//! the game world: a procedurally generated, depth-layered cave.
 
-mod proving_ground;
+mod cave;
 
-pub use proving_ground::ProvingGroundPlugin;
+pub use cave::{CavePlugin, CurrentDepth, RunStats};

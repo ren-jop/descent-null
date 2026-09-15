@@ -17,6 +17,9 @@ use super::wound::landing_wound;
 /// driven by landing pose is future work — see the milestone 2 entry in
 /// docs/REBUILD_PLAN.md. For now a hard landing lands on both legs.
 const LANDING_REGIONS: [BodyRegion; 2] = [BodyRegion::LeftLeg, BodyRegion::RightLeg];
+/// horizontal speed cap with an unsplinted leg fracture. placeholder —
+/// tune against feel.
+const FRACTURE_SPEED_CAP: f32 = 60.0;
 
 #[derive(Component, Default)]
 pub struct Body(pub BodyState);
@@ -27,7 +30,7 @@ impl Plugin for BodyPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (apply_landing_wounds, tick_cardio, enforce_unconsciousness).chain(),
+            (apply_landing_wounds, tick_cardio, enforce_unconsciousness, enforce_fracture_limp).chain(),
         );
     }
 }
@@ -64,6 +67,16 @@ fn enforce_unconsciousness(
             if velocity.y > 0.0 {
                 velocity.y = 0.0;
             }
+        }
+    }
+}
+
+/// an unsplinted leg fracture caps movement speed — treat it (a splint
+/// item) to lift the penalty.
+fn enforce_fracture_limp(mut query: Query<(&Body, &mut LinearVelocity), With<CharacterController>>) {
+    for (body, mut velocity) in &mut query {
+        if body.0.has_untreated_leg_fracture() {
+            velocity.x = velocity.x.clamp(-FRACTURE_SPEED_CAP, FRACTURE_SPEED_CAP);
         }
     }
 }

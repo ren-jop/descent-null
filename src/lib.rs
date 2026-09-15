@@ -1,10 +1,11 @@
 //! Descent: Null — systemic 2D survival simulation core.
-//! Milestone 1 (player + physics) is done; `body` (wounds + cardio) and
-//! `survival` (hunger/thirst) cover milestone 2's core loop and the first
-//! slice of milestone 3. Later systems land as modules, not grid hacks.
+//! Phase 1 (per the survival-loop design doc): physics, procedural cave,
+//! body/cardio, survival (hunger/thirst/stamina), and items/inventory are
+//! all in. Phase 2 (crafting, hazards, enemies, light) is next.
 
 pub mod body;
 pub mod game;
+pub mod items;
 pub mod physics;
 pub mod player;
 pub mod survival;
