@@ -30,10 +30,7 @@ pub struct LeaderboardPlugin;
 impl Plugin for LeaderboardPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LeaderboardState>()
-            // Name entry is handled before normal gameplay systems. Consumed
-            // keys are cleared after being recorded so typing R/E/F/C etc.
-            // cannot restart, attack or use items behind the score screen.
-            .add_systems(PreUpdate, consume_name_entry_input)
+            .add_systems(PreUpdate, consume_leaderboard_input)
             .add_systems(Startup, spawn_leaderboard)
             .add_systems(
                 Update,
@@ -193,7 +190,7 @@ fn spawn_leaderboard(mut commands: Commands) {
                                 TextColor(Color::srgb(0.94, 0.91, 0.82)),
                             ));
                             inner.spawn((
-                                Text::new("L / CLICK  CLOSE     R  NEXT RUN"),
+                                Text::new("L / CLICK  CLOSE"),
                                 TextFont {
                                     font_size: 13.0,
                                     ..default()
@@ -285,12 +282,21 @@ fn key_to_char(keyboard: &ButtonInput<KeyCode>) -> Option<(KeyCode, char)> {
     None
 }
 
-fn consume_name_entry_input(
+fn consume_leaderboard_input(
     mut keyboard: ResMut<ButtonInput<KeyCode>>,
     stats: Res<RunStats>,
     mut session: ResMut<SessionTimes>,
     mut state: ResMut<LeaderboardState>,
 ) {
+    // A mid-run records screen is informational. Do not let R leak through
+    // and silently restart the cave while the player is viewing it.
+    if state.open && !stats.extracted && !state.name_entry {
+        if keyboard.just_pressed(KeyCode::KeyR) {
+            keyboard.clear_just_pressed(KeyCode::KeyR);
+        }
+        return;
+    }
+
     if !state.name_entry {
         return;
     }
@@ -325,11 +331,10 @@ fn consume_name_entry_input(
 fn leaderboard_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     stats: Res<RunStats>,
-    state: ResMut<LeaderboardState>,
+    mut state: ResMut<LeaderboardState>,
     mini_interaction: Query<&Interaction, (Changed<Interaction>, With<MiniLeaderboardButton>)>,
     full_interaction: Query<&Interaction, (Changed<Interaction>, With<FullLeaderboardButton>)>,
 ) {
-    let mut state = state;
     if state.name_entry || stats.extracted {
         return;
     }
