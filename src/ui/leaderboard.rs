@@ -158,7 +158,7 @@ fn spawn_leaderboard(mut commands: Commands) {
                                 TextColor(Color::srgb(0.94, 0.91, 0.82)),
                             ));
                             inner.spawn((
-                                Text::new("L / CLICK  CLOSE"),
+                                Text::new("L / CLICK  CLOSE     R  NEXT RUN"),
                                 TextFont { font_size: 13.0, ..default() },
                                 TextColor(Color::srgb(0.66, 0.62, 0.52)),
                             ));
@@ -176,14 +176,14 @@ fn begin_name_entry_if_needed(
         state.handled_extraction = false;
         state.name_entry = false;
         state.name_buffer.clear();
+        state.open = false;
         return;
     }
-    if state.handled_extraction {
-        return;
-    }
+    if state.handled_extraction { return; }
+
     state.handled_extraction = true;
+    state.open = true;
     if session.qualifies(stats.elapsed_secs) {
-        state.open = true;
         state.name_entry = true;
         state.name_buffer.clear();
     }
@@ -237,6 +237,10 @@ fn leaderboard_controls(
         return;
     }
 
+    // Once a run is complete the leaderboard owns the result screen until R
+    // starts the next expo player's run. Mid-run it can still be toggled.
+    if stats.extracted { return; }
+
     let mini_clicked = mini_interaction.iter().any(|interaction| *interaction == Interaction::Pressed);
     let full_clicked = full_interaction.iter().any(|interaction| *interaction == Interaction::Pressed);
     if keyboard.just_pressed(KeyCode::KeyL) || mini_clicked {
@@ -274,12 +278,19 @@ fn update_full_leaderboard(
         frame.display = if state.open { Display::Flex } else { Display::None };
     }
     if !state.open { return; }
+
     if let Ok(mut text) = text.single_mut() {
         **text = if state.name_entry {
             format!(
                 "TOP FIVE TIME!  {:.1}s\n\nTYPE YOUR NAME\n> {}_\n\nLETTERS / NUMBERS / SPACE\nBACKSPACE  DELETE     ENTER  SAVE",
                 stats.elapsed_secs,
                 state.name_buffer
+            )
+        } else if stats.extracted {
+            format!(
+                "RUN COMPLETE  {:.1}s\n\nTOP 5 THIS SESSION\n\n{}\n\nPRESS R FOR NEXT PLAYER",
+                stats.elapsed_secs,
+                session.formatted()
             )
         } else {
             format!("TOP 5 THIS SESSION\n\n{}", session.formatted())
