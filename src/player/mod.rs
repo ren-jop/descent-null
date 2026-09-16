@@ -21,7 +21,9 @@ impl Plugin for PlayerPlugin {
             .add_systems(
                 Update,
                 (
-                    animate_player_visual,
+                    animate_player_root,
+                    animate_player_legs,
+                    animate_bleeding,
                     follow_camera,
                     add_shake_on_landing,
                     apply_camera_shake,
@@ -34,186 +36,136 @@ impl Plugin for PlayerPlugin {
     }
 }
 
-#[derive(Component)]
-pub struct Player;
-#[derive(Component)]
-pub struct FollowCamera;
-#[derive(Component)]
-struct PlayerVisual;
-#[derive(Component)]
-struct Vignette;
+#[derive(Component)] pub struct Player;
+#[derive(Component)] pub struct FollowCamera;
+#[derive(Component)] struct PlayerVisual;
+#[derive(Component)] struct BleedPulse;
+#[derive(Component, Clone, Copy)] struct LegVisual { side: f32 }
+#[derive(Component)] struct Vignette;
 
 const HINT_SECONDS: f32 = 7.0;
 
 #[derive(Resource)]
 pub struct SpawnHint(pub f32);
-
-impl Default for SpawnHint {
-    fn default() -> Self {
-        Self(HINT_SECONDS)
-    }
-}
+impl Default for SpawnHint { fn default() -> Self { Self(HINT_SECONDS) } }
 
 const SPAWN: Vec3 = Vec3::new(-420.0, 40.0, 0.0);
 const CAMERA_Y_OFFSET: f32 = 58.0;
 
-#[derive(Resource)]
-struct CameraFollow {
-    position: Vec3,
-}
-
+#[derive(Resource)] struct CameraFollow { position: Vec3 }
 impl Default for CameraFollow {
-    fn default() -> Self {
-        Self {
-            position: Vec3::new(SPAWN.x, SPAWN.y + CAMERA_Y_OFFSET, 0.0),
-        }
-    }
+    fn default() -> Self { Self { position: Vec3::new(SPAWN.x, SPAWN.y + CAMERA_Y_OFFSET, 0.0) } }
 }
 
-#[derive(Resource, Default)]
-struct CameraShake {
-    trauma: f32,
-}
-
+#[derive(Resource, Default)] struct CameraShake { trauma: f32 }
 const SHAKE_DECAY_PER_SEC: f32 = 1.4;
 const MAX_SHAKE_OFFSET: f32 = 18.0;
 
 fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands
-        .spawn((
-            Player,
-            Transform::from_translation(SPAWN),
-            Visibility::default(),
-            CharacterControllerBundle::new(Collider::capsule(12.5, 20.0)),
-            Friction::ZERO.with_combine_rule(CoefficientCombine::Min),
-            Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
-            ColliderDensity(2.0),
-            GravityScale(1.5),
-            TransformInterpolation,
-            Body::default(),
-            Survival::default(),
-            PlayerInventory::default(),
-        ))
-        .with_children(|player| {
-            player
-                .spawn((PlayerVisual, Transform::default(), Visibility::default()))
-                .with_children(|visual| {
-                    visual.spawn((
-                        Sprite::from_color(Color::srgb(0.19, 0.22, 0.24), Vec2::new(22.0, 25.0)),
-                        Transform::from_xyz(0.0, 0.0, 0.2),
-                    ));
-                    visual.spawn((
-                        Sprite::from_color(Color::srgb(0.12, 0.14, 0.15), Vec2::new(7.0, 19.0)),
-                        Transform::from_xyz(-13.0, 0.0, 0.1),
-                    ));
-                    visual.spawn((
-                        Sprite::from_color(Color::srgb(0.72, 0.58, 0.43), Vec2::new(15.0, 13.0)),
-                        Transform::from_xyz(0.0, 18.0, 0.2),
-                    ));
-                    visual.spawn((
-                        Sprite::from_color(Color::srgb(0.70, 0.56, 0.22), Vec2::new(18.0, 7.0)),
-                        Transform::from_xyz(0.0, 25.0, 0.3),
-                    ));
-                    visual.spawn((
-                        Sprite::from_color(Color::srgb(0.96, 0.88, 0.54), Vec2::new(5.0, 5.0)),
-                        Transform::from_xyz(6.0, 26.0, 0.4),
-                    ));
-                    visual.spawn((
-                        Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)),
-                        Transform::from_xyz(-6.0, -20.0, 0.2),
-                    ));
-                    visual.spawn((
-                        Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)),
-                        Transform::from_xyz(6.0, -20.0, 0.2),
-                    ));
-                });
-        });
-
     commands.spawn((
-        Camera2d,
-        FollowCamera,
-        Transform::from_xyz(SPAWN.x, SPAWN.y + CAMERA_Y_OFFSET, 0.0),
-    ));
+        Player,
+        Transform::from_translation(SPAWN),
+        Visibility::default(),
+        CharacterControllerBundle::new(Collider::capsule(12.5, 20.0)),
+        Friction::ZERO.with_combine_rule(CoefficientCombine::Min),
+        Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
+        ColliderDensity(2.0),
+        GravityScale(1.5),
+        TransformInterpolation,
+        Body::default(),
+        Survival::default(),
+        PlayerInventory::default(),
+    )).with_children(|player| {
+        player.spawn((PlayerVisual, Transform::default(), Visibility::default())).with_children(|visual| {
+            // soft red flash around the explorer while actively bleeding
+            visual.spawn((
+                BleedPulse,
+                Sprite::from_color(Color::srgba(0.75, 0.05, 0.04, 0.0), Vec2::new(36.0, 58.0)),
+                Transform::from_xyz(0.0, 1.0, 0.55),
+            ));
+            visual.spawn((Sprite::from_color(Color::srgb(0.19, 0.22, 0.24), Vec2::new(22.0, 25.0)), Transform::from_xyz(0.0, 0.0, 0.2)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.12, 0.14, 0.15), Vec2::new(7.0, 19.0)), Transform::from_xyz(-13.0, 0.0, 0.1)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.72, 0.58, 0.43), Vec2::new(15.0, 13.0)), Transform::from_xyz(0.0, 18.0, 0.2)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.70, 0.56, 0.22), Vec2::new(18.0, 7.0)), Transform::from_xyz(0.0, 25.0, 0.3)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.96, 0.88, 0.54), Vec2::new(5.0, 5.0)), Transform::from_xyz(6.0, 26.0, 0.4)));
+            visual.spawn((LegVisual { side: -1.0 }, Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)), Transform::from_xyz(-6.0, -20.0, 0.2)));
+            visual.spawn((LegVisual { side: 1.0 }, Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)), Transform::from_xyz(6.0, -20.0, 0.2)));
+        });
+    });
 
+    commands.spawn((Camera2d, FollowCamera, Transform::from_xyz(SPAWN.x, SPAWN.y + CAMERA_Y_OFFSET, 0.0)));
     commands.spawn((
         Vignette,
-        Sprite {
-            image: asset_server.load("sprites/vignette.png"),
-            custom_size: Some(Vec2::splat(1800.0)),
-            ..default()
-        },
+        Sprite { image: asset_server.load("sprites/vignette.png"), custom_size: Some(Vec2::splat(1800.0)), ..default() },
         Transform::from_xyz(SPAWN.x, SPAWN.y, 50.0),
     ));
 }
 
-fn animate_player_visual(
+fn animate_player_root(
     time: Res<Time>,
     player: Query<&LinearVelocity, With<Player>>,
     mut visual: Query<&mut Transform, With<PlayerVisual>>,
 ) {
-    let (Ok(velocity), Ok(mut visual)) = (player.single(), visual.single_mut()) else {
-        return;
-    };
-
-    let moving = velocity.x.abs() > 20.0;
-    let facing = if velocity.x > 20.0 {
-        1.0
-    } else if velocity.x < -20.0 {
-        -1.0
-    } else if visual.scale.x < 0.0 {
-        -1.0
-    } else {
-        1.0
-    };
-
+    let (Ok(velocity), Ok(mut visual)) = (player.single(), visual.single_mut()) else { return; };
+    let moving = velocity.x.abs() > 25.0;
+    let facing = if velocity.x > 25.0 { 1.0 } else if velocity.x < -25.0 { -1.0 } else if visual.scale.x < 0.0 { -1.0 } else { 1.0 };
     visual.scale = Vec3::new(facing, 1.0, 1.0);
-    if moving {
-        let phase = time.elapsed_secs() * 11.0;
-        visual.translation.y = phase.sin().abs() * 1.4;
-        visual.rotation = Quat::from_rotation_z(phase.sin() * 0.035 * facing);
-    } else {
-        visual.translation.y = 0.0;
-        visual.rotation = Quat::IDENTITY;
+    // Small body rise only; no whole-body rotation, which looked like sliding/tilting.
+    visual.translation.y = if moving { (time.elapsed_secs() * 10.0).sin().abs() * 1.0 } else { 0.0 };
+    visual.rotation = Quat::IDENTITY;
+}
+
+fn animate_player_legs(
+    time: Res<Time>,
+    player: Query<&LinearVelocity, With<Player>>,
+    mut legs: Query<(&LegVisual, &mut Transform)>,
+) {
+    let Ok(velocity) = player.single() else { return; };
+    let moving = velocity.x.abs() > 25.0;
+    let phase = time.elapsed_secs() * 11.0;
+    for (leg, mut transform) in &mut legs {
+        let stride = if moving { (phase + if leg.side > 0.0 { std::f32::consts::PI } else { 0.0 }).sin() } else { 0.0 };
+        transform.translation.x = leg.side * 6.0 + stride * 1.6;
+        transform.translation.y = -20.0 + stride.abs() * 1.5;
+        transform.rotation = Quat::from_rotation_z(stride * 0.08);
     }
 }
 
-fn follow_camera(
+fn animate_bleeding(
     time: Res<Time>,
-    player: Query<&Transform, With<Player>>,
-    mut follow: ResMut<CameraFollow>,
+    player: Query<&Body, With<Player>>,
+    mut pulse: Query<(&mut Sprite, &mut Transform), With<BleedPulse>>,
 ) {
-    let Ok(player) = player.single() else {
-        return;
-    };
-    let dt = time.delta_secs();
+    let (Ok(body), Ok((mut sprite, mut transform))) = (player.single(), pulse.single_mut()) else { return; };
+    if body.0.total_bleed_rate() > 0.0 {
+        let wave = 0.5 + 0.5 * (time.elapsed_secs() * 7.0).sin();
+        sprite.color = Color::srgba(0.82, 0.06, 0.04, 0.10 + wave * 0.22);
+        let scale = 1.0 + wave * 0.10;
+        transform.scale = Vec3::splat(scale);
+    } else {
+        sprite.color = Color::srgba(0.82, 0.06, 0.04, 0.0);
+        transform.scale = Vec3::ONE;
+    }
+}
+
+fn follow_camera(time: Res<Time>, player: Query<&Transform, With<Player>>, mut follow: ResMut<CameraFollow>) {
+    let Ok(player) = player.single() else { return; };
     let target = Vec3::new(player.translation.x, player.translation.y + CAMERA_Y_OFFSET, 0.0);
-    let blend = 1.0 - (-6.0 * dt).exp();
+    let blend = 1.0 - (-6.0 * time.delta_secs()).exp();
     follow.position = follow.position.lerp(target, blend);
 }
 
-fn add_shake_on_landing(
-    mut events: MessageReader<LandingImpact>,
-    mut shake: ResMut<CameraShake>,
-) {
-    for impact in events.read() {
-        shake.trauma = (shake.trauma + impact.severity * 0.7).min(1.0);
-    }
+fn add_shake_on_landing(mut events: MessageReader<LandingImpact>, mut shake: ResMut<CameraShake>) {
+    for impact in events.read() { shake.trauma = (shake.trauma + impact.severity * 0.7).min(1.0); }
 }
 
 fn apply_camera_shake(
-    time: Res<Time>,
-    follow: Res<CameraFollow>,
-    mut shake: ResMut<CameraShake>,
+    time: Res<Time>, follow: Res<CameraFollow>, mut shake: ResMut<CameraShake>,
     mut camera: Query<&mut Transform, With<FollowCamera>>,
 ) {
     shake.trauma = (shake.trauma - SHAKE_DECAY_PER_SEC * time.delta_secs()).max(0.0);
-    let Ok(mut camera) = camera.single_mut() else {
-        return;
-    };
-    if shake.trauma <= 0.0 {
-        camera.translation = follow.position;
-        return;
-    }
+    let Ok(mut camera) = camera.single_mut() else { return; };
+    if shake.trauma <= 0.0 { camera.translation = follow.position; return; }
     let power = shake.trauma * shake.trauma;
     let mut rng = rand::thread_rng();
     let jitter = Vec3::new(
@@ -228,48 +180,23 @@ fn follow_camera_with_vignette(
     camera: Query<&Transform, With<FollowCamera>>,
     mut vignette: Query<&mut Transform, (With<Vignette>, Without<FollowCamera>)>,
 ) {
-    let Ok(camera) = camera.single() else {
-        return;
-    };
-    let Ok(mut vignette) = vignette.single_mut() else {
-        return;
-    };
+    let (Ok(camera), Ok(mut vignette)) = (camera.single(), vignette.single_mut()) else { return; };
     vignette.translation.x = camera.translation.x;
     vignette.translation.y = camera.translation.y;
 }
 
 fn tick_spawn_hint(time: Res<Time>, mut hint: ResMut<SpawnHint>) {
-    if hint.0 > 0.0 {
-        hint.0 = (hint.0 - time.delta_secs()).max(0.0);
-    }
+    if hint.0 > 0.0 { hint.0 = (hint.0 - time.delta_secs()).max(0.0); }
 }
 
 fn reset_player(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut query: Query<
-        (
-            &mut Transform,
-            &mut LinearVelocity,
-            &mut Body,
-            &mut Survival,
-            &mut PlayerInventory,
-        ),
-        With<Player>,
-    >,
-    mut stats: ResMut<RunStats>,
-    mut selected: ResMut<SelectedSlot>,
-    mut hint: ResMut<SpawnHint>,
-    mut follow: ResMut<CameraFollow>,
-    mut shake: ResMut<CameraShake>,
+    mut query: Query<(&mut Transform, &mut LinearVelocity, &mut Body, &mut Survival, &mut PlayerInventory), With<Player>>,
+    mut stats: ResMut<RunStats>, mut selected: ResMut<SelectedSlot>, mut hint: ResMut<SpawnHint>,
+    mut follow: ResMut<CameraFollow>, mut shake: ResMut<CameraShake>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyR) {
-        return;
-    }
-    let Ok((mut transform, mut velocity, mut body, mut survival, mut inventory)) =
-        query.single_mut()
-    else {
-        return;
-    };
+    if !keyboard.just_pressed(KeyCode::KeyR) { return; }
+    let Ok((mut transform, mut velocity, mut body, mut survival, mut inventory)) = query.single_mut() else { return; };
     transform.translation = SPAWN;
     *velocity = LinearVelocity::ZERO;
     body.0.clear();
