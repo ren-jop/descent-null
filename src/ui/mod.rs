@@ -57,6 +57,8 @@ struct TutorialState {
     complete: bool,
 }
 
+/// Only truly persistent HUD pieces get this tag. Conditional messages
+/// (warnings/toasts/tutorial) manage their own visibility and are not tagged.
 #[derive(Component)]
 struct GameplayHud;
 #[derive(Component)]
@@ -213,7 +215,6 @@ fn spawn_vitals(commands: &mut Commands, asset_server: &AssetServer) {
     }
 
     commands.spawn((
-        GameplayHud,
         WarningText,
         Text::new(""),
         TextFont { font_size: 14.0, ..default() },
@@ -321,7 +322,6 @@ fn spawn_hotbar(commands: &mut Commands, asset_server: &AssetServer) {
 
 fn spawn_toasts(commands: &mut Commands) {
     commands.spawn((
-        GameplayHud,
         EventToast,
         Text::new(""),
         TextFont { font_size: 15.0, ..default() },
@@ -338,7 +338,6 @@ fn spawn_toasts(commands: &mut Commands) {
     ));
 
     commands.spawn((
-        GameplayHud,
         DepthToast,
         Text::new(""),
         TextFont { font_size: 20.0, ..default() },
@@ -358,7 +357,6 @@ fn spawn_toasts(commands: &mut Commands) {
 fn spawn_tutorial(commands: &mut Commands) {
     commands
         .spawn((
-            GameplayHud,
             TutorialPanel,
             Node {
                 position_type: PositionType::Absolute,
@@ -530,14 +528,12 @@ fn pause_controls(
     if keyboard.just_pressed(KeyCode::Escape) {
         if crafting.open {
             crafting.open = false;
+            if !pause.open {
+                virtual_time.unpause();
+            }
             return;
         }
         pause.open = !pause.open;
-        if pause.open {
-            virtual_time.pause();
-        } else {
-            virtual_time.unpause();
-        }
     }
 
     if pause.open {
@@ -546,11 +542,16 @@ fn pause_controls(
         }
         if keyboard.just_pressed(KeyCode::KeyR) {
             pause.open = false;
-            virtual_time.unpause();
         }
         if keyboard.just_pressed(KeyCode::KeyQ) {
             exit.write(AppExit::Success);
         }
+    }
+
+    if pause.open || crafting.open {
+        virtual_time.pause();
+    } else {
+        virtual_time.unpause();
     }
 }
 
@@ -585,7 +586,10 @@ fn update_vitals(
             VitalKind::Thirst => ("THIRST", survival.0.thirst()),
             VitalKind::Stamina => ("STAMINA", survival.0.stamina()),
         };
-        **text = format!("{label} {:>3}%", (value.clamp(0.0, 1.0) * 100.0).round() as i32);
+        **text = format!(
+            "{label} {:>3}%",
+            (value.clamp(0.0, 1.0) * 100.0).round() as i32
+        );
     }
 }
 
@@ -664,7 +668,10 @@ fn update_hotbar(
     }
 }
 
-fn update_event_toast(last: Res<LastEvent>, mut toast: Query<(&mut Node, &mut Text), With<EventToast>>) {
+fn update_event_toast(
+    last: Res<LastEvent>,
+    mut toast: Query<(&mut Node, &mut Text), With<EventToast>>,
+) {
     let Ok((mut node, mut text)) = toast.single_mut() else {
         return;
     };
@@ -770,7 +777,11 @@ fn update_crafting_overlay(
     let Ok(mut overlay) = overlay.single_mut() else {
         return;
     };
-    overlay.display = if crafting.open { Display::Flex } else { Display::None };
+    overlay.display = if crafting.open {
+        Display::Flex
+    } else {
+        Display::None
+    };
     if crafting.open {
         if let Ok(mut text) = text.single_mut() {
             let recipes = recipe_descriptions().join("\n\n");
@@ -786,7 +797,11 @@ fn update_pause_overlay(
     mut overlay: Query<&mut Node, With<PauseOverlay>>,
 ) {
     if let Ok(mut overlay) = overlay.single_mut() {
-        overlay.display = if pause.open { Display::Flex } else { Display::None };
+        overlay.display = if pause.open {
+            Display::Flex
+        } else {
+            Display::None
+        };
     }
 }
 
@@ -841,18 +856,18 @@ fn update_win_overlay(
     }
 }
 
+/// Persistent HUD pieces are restored every frame while playing. This avoids
+/// the old bug where a death/pause hid them once and they never came back.
 fn enforce_gameplay_hud_visibility(
     player: Query<&Body, With<Player>>,
     stats: Res<RunStats>,
     pause: Res<PauseMenuState>,
+    crafting: Res<CraftingMenu>,
     mut hud: Query<&mut Node, With<GameplayHud>>,
 ) {
     let dead = player.single().map(|body| body.0.is_dead()).unwrap_or(false);
-    let hide = dead || stats.extracted || pause.open;
-    if !hide {
-        return;
-    }
+    let show = !(dead || stats.extracted || pause.open || crafting.open);
     for mut node in &mut hud {
-        node.display = Display::None;
+        node.display = if show { Display::Flex } else { Display::None };
     }
 }
