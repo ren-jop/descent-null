@@ -14,6 +14,10 @@ use super::item::{ItemKind, ItemStack};
 const DEFAULT_CAPACITY: u32 = 12;
 const PICKUP_RADIUS: f32 = 40.0;
 const EVENT_DISPLAY_SECONDS: f32 = 2.6;
+// Keep the same normalized 0..2.6 timer the FIELD LOG animation already
+// expects, but let it count down more slowly. This preserves the pixel slide
+// easing while giving players a proper reading buffer before the card exits.
+const EVENT_TIMER_RATE: f32 = 0.62;
 
 impl Default for Inventory { fn default() -> Self { Self::new(DEFAULT_CAPACITY) } }
 
@@ -41,7 +45,9 @@ impl Plugin for ItemsPlugin {
 }
 
 fn tick_last_event(time: Res<Time>, mut last: ResMut<LastEvent>) {
-    if last.remaining > 0.0 { last.remaining = (last.remaining - time.delta_secs()).max(0.0); }
+    if last.remaining > 0.0 {
+        last.remaining = (last.remaining - time.delta_secs() * EVENT_TIMER_RATE).max(0.0);
+    }
 }
 
 fn collect_pickups(
