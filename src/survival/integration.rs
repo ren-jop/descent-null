@@ -1,7 +1,5 @@
-//! Bevy wiring for hunger/thirst/stamina. Survival needs should change
-//! what the player can do before they ever masquerade as unexplained
-//! health damage. Hunger/thirst therefore affect stamina recovery and
-//! exhaustion; wounds remain the source of blood loss.
+//! Bevy wiring for hunger/thirst/stamina. Survival needs change what the
+//! player can do before they ever masquerade as unexplained health damage.
 
 use avian2d::prelude::*;
 use bevy::prelude::*;
@@ -10,8 +8,9 @@ use crate::physics::CharacterController;
 
 use super::state::SurvivalState;
 
-/// horizontal speed cap while exhausted. placeholder — tune against feel.
 const EXHAUSTED_SPEED_CAP: f32 = 80.0;
+const NORMAL_SPEED_CAP: f32 = 180.0;
+const LOW_NEEDS_MIN_SPEED_CAP: f32 = 115.0;
 
 #[derive(Component, Default)]
 pub struct Survival(pub SurvivalState);
@@ -20,7 +19,7 @@ pub struct SurvivalPlugin;
 
 impl Plugin for SurvivalPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (tick_survival, tick_stamina, enforce_exhaustion).chain());
+        app.add_systems(Update, (tick_survival, tick_stamina, enforce_survival_penalties).chain());
     }
 }
 
@@ -42,12 +41,26 @@ fn tick_stamina(time: Res<Time>, keyboard: Res<ButtonInput<KeyCode>>, mut query:
     }
 }
 
-fn enforce_exhaustion(
+fn enforce_survival_penalties(
     mut query: Query<(&Survival, &mut LinearVelocity), With<CharacterController>>,
 ) {
     for (survival, mut velocity) in &mut query {
         if survival.0.is_exhausted() {
             velocity.x = velocity.x.clamp(-EXHAUSTED_SPEED_CAP, EXHAUSTED_SPEED_CAP);
+            continue;
+        }
+
+        // Hunger/thirst already slow stamina recovery. Below the hardship
+        // threshold they now also gradually reduce horizontal speed, making
+        // the meters matter before they hit zero without touching health.
+        let hardship = survival
+            .0
+            .hunger_hardship()
+            .max(survival.0.thirst_hardship());
+        if hardship > 0.0 {
+            let cap = NORMAL_SPEED_CAP
+                - (NORMAL_SPEED_CAP - LOW_NEEDS_MIN_SPEED_CAP) * hardship;
+            velocity.x = velocity.x.clamp(-cap, cap);
         }
     }
 }
