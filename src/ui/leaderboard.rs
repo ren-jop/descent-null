@@ -172,11 +172,18 @@ fn begin_name_entry_if_needed(
     session: Res<SessionTimes>,
     mut state: ResMut<LeaderboardState>,
 ) {
+    // Do not reset `open` every normal gameplay frame. The previous version did
+    // exactly that, which made L appear to flash/break because leaderboard_controls
+    // opened it and this system closed it again on the very next frame.
+    // Only clear the result-screen state once when transitioning from a completed
+    // run back into a fresh active run.
     if !stats.extracted {
-        state.handled_extraction = false;
-        state.name_entry = false;
-        state.name_buffer.clear();
-        state.open = false;
+        if state.handled_extraction {
+            state.handled_extraction = false;
+            state.name_entry = false;
+            state.name_buffer.clear();
+            state.open = false;
+        }
         return;
     }
     if state.handled_extraction { return; }
