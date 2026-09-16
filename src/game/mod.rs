@@ -1,6 +1,7 @@
 //! Main game plugin.
 
 use avian2d::prelude::*;
+use bevy::audio::Volume;
 use bevy::prelude::*;
 
 use crate::body::BodyPlugin;
@@ -43,9 +44,27 @@ impl Plugin for GamePlugin {
     }
 }
 
+/// Layer the existing original ambience at different playback speeds. The
+/// result has slow harmonic movement and a little tension instead of one
+/// static drone, while staying subtle enough not to fight gameplay.
 fn spawn_ambience(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let ambience = asset_server.load("audio/ambience.wav");
     commands.spawn((
-        AudioPlayer::new(asset_server.load("audio/ambience.wav")),
-        PlaybackSettings::LOOP,
+        AudioPlayer::new(ambience.clone()),
+        PlaybackSettings::LOOP
+            .with_volume(Volume::Linear(0.30))
+            .with_speed(1.0),
+    ));
+    commands.spawn((
+        AudioPlayer::new(ambience.clone()),
+        PlaybackSettings::LOOP
+            .with_volume(Volume::Linear(0.16))
+            .with_speed(0.78),
+    ));
+    commands.spawn((
+        AudioPlayer::new(ambience),
+        PlaybackSettings::LOOP
+            .with_volume(Volume::Linear(0.08))
+            .with_speed(1.32),
     ));
 }
