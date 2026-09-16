@@ -1,6 +1,6 @@
-//! Bevy wiring for hunger and thirst. Hunger is the movement-pressure need;
-//! thirst is the vision/health-pressure need. Critical dehydration drains
-//! blood volume quickly enough that ignoring water becomes an urgent problem.
+//! Bevy wiring for hunger and thirst. Hunger primarily affects movement,
+//! thirst primarily affects health/vision, and critically low values now
+//! compound each other so neglecting both becomes substantially more dangerous.
 
 use avian2d::prelude::*;
 use bevy::prelude::*;
@@ -11,12 +11,18 @@ use crate::physics::CharacterController;
 use super::state::SurvivalState;
 
 const NORMAL_SPEED_CAP: f32 = 180.0;
-const STARVING_SPEED_CAP: f32 = 65.0;
-const HUNGER_SLOW_START: f32 = 0.65;
-const CRITICAL_THIRST: f32 = 0.12;
-/// At zero thirst this removes roughly 4% blood volume per second. The effect
-/// ramps in below 12% so the field log/vision warning arrives before damage.
-const DEHYDRATION_BLOOD_DRAIN_PER_SEC: f32 = 0.04;
+const STARVING_SPEED_CAP: f32 = 58.0;
+const HUNGER_SLOW_START: f32 = 0.68;
+const STARVATION_DAMAGE_START: f32 = 0.14;
+const CRITICAL_THIRST: f32 = 0.18;
+const COMBINED_HARDSHIP_START: f32 = 0.35;
+
+/// At zero hunger this costs roughly 1.8% blood volume per second.
+const STARVATION_BLOOD_DRAIN_PER_SEC: f32 = 0.018;
+/// At zero thirst this costs roughly 4.5% blood volume per second.
+const DEHYDRATION_BLOOD_DRAIN_PER_SEC: f32 = 0.045;
+/// Additional penalty when both needs are simultaneously low.
+const COMBINED_HARDSHIP_DRAIN_PER_SEC: f32 = 0.015;
 
 #[derive(Component, Default)]
 pub struct Survival(pub SurvivalState);
@@ -43,10 +49,10 @@ fn apply_survival_consequences(
 ) {
     let dt = time.delta_secs();
     for (survival, mut body, mut velocity) in &mut query {
-        // Hunger has one simple, readable consequence: the lower it gets,
-        // the slower horizontal movement becomes. Thirst does not also slow
-        // movement; it owns the vision + dehydration-health consequences.
         let hunger = survival.0.hunger();
+        let thirst = survival.0.thirst();
+
+        // Hunger progressively removes mobility rather than waiting for 0%.
         if hunger < HUNGER_SLOW_START {
             let severity = 1.0 - hunger / HUNGER_SLOW_START;
             let cap = NORMAL_SPEED_CAP
@@ -54,11 +60,33 @@ fn apply_survival_consequences(
             velocity.x = velocity.x.clamp(-cap, cap);
         }
 
-        if survival.0.thirst() < CRITICAL_THIRST {
-            let severity = 1.0 - survival.0.thirst() / CRITICAL_THIRST;
-            body.0
-                .apply_external_drain(DEHYDRATION_BLOOD_DRAIN_PER_SEC * severity * dt);
+        // Starvation is slower than dehydration, but it can now kill if ignored.
+        if hunger < STARVATION_DAMAGE_START {
+            let severity = 1.0 - hunger / STARVATION_DAMAGE_START;
+            body.0.apply_external_drain(
+                STARVATION_BLOOD_DRAIN_PER_SEC * severity.clamp(0.0, 1.0) * dt,
+            );
+        }
+
+        // Dehydration becomes dangerous sooner than before and remains the faster
+        // survival-related health threat.
+        if thirst < CRITICAL_THIRST {
+            let severity = 1.0 - thirst / CRITICAL_THIRST;
+            body.0.apply_external_drain(
+                DEHYDRATION_BLOOD_DRAIN_PER_SEC * severity.clamp(0.0, 1.0) * dt,
+            );
             cause.0 = DamageCause::Dehydration;
+        }
+
+        // The important correlation: being low on both is worse than simply adding
+        // two unrelated bars. This encourages players to manage food and water as
+        // one survival problem instead of waiting for either meter to hit zero.
+        if hunger < COMBINED_HARDSHIP_START && thirst < COMBINED_HARDSHIP_START {
+            let hunger_severity = 1.0 - hunger / COMBINED_HARDSHIP_START;
+            let thirst_severity = 1.0 - thirst / COMBINED_HARDSHIP_START;
+            let combined = hunger_severity.min(thirst_severity).clamp(0.0, 1.0);
+            body.0
+                .apply_external_drain(COMBINED_HARDSHIP_DRAIN_PER_SEC * combined * dt);
         }
     }
 }
