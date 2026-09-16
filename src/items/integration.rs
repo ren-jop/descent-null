@@ -37,7 +37,6 @@ pub struct CraftingMenu {
     pub open: bool,
 }
 
-/// A brief contextual notification: pickups, item use, crafting and combat.
 #[derive(Resource, Default)]
 pub struct LastEvent {
     pub text: String,
@@ -105,7 +104,7 @@ fn collect_pickups(
             commands.entity(entity).despawn();
         } else {
             last.show(format!(
-                "Too heavy: {} (drop/use something first)",
+                "Too heavy: {} (use something first)",
                 pickup.0.kind.label()
             ));
         }
@@ -150,8 +149,6 @@ fn inventory_controls(
     }
 }
 
-/// F uses exactly the selected hotbar stack. This is slower than the old
-/// automatic "best item" action, but much easier to learn and reason about.
 fn use_selected_item(
     keyboard: Res<ButtonInput<KeyCode>>,
     crafting: Res<CraftingMenu>,
@@ -212,9 +209,6 @@ fn use_selected_item(
         ItemKind::Scrap | ItemKind::Cloth | ItemKind::Metal | ItemKind::Battery => {
             last.show("Crafting material - press C to see recipes");
         }
-        ItemKind::Cargo => {
-            last.show("Mission cargo is handled by the objective system");
-        }
     }
 }
 
@@ -224,15 +218,15 @@ fn crafting_controls(
     mut inventory: Query<&mut PlayerInventory>,
     mut last: ResMut<LastEvent>,
 ) {
+    if keyboard.just_pressed(KeyCode::KeyR) {
+        crafting.open = false;
+        return;
+    }
     if keyboard.just_pressed(KeyCode::KeyC) {
         crafting.open = !crafting.open;
         if crafting.open {
             last.show("Crafting opened - choose recipe 1, 2 or 3");
         }
-        return;
-    }
-    if crafting.open && keyboard.just_pressed(KeyCode::Escape) {
-        crafting.open = false;
         return;
     }
     if !crafting.open {
