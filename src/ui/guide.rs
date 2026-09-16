@@ -1,6 +1,4 @@
-use avian2d::prelude::*;
 use bevy::prelude::*;
-use bevy::time::Virtual;
 
 use crate::body::Body;
 use crate::items::CraftingMenu;
@@ -25,11 +23,7 @@ impl Plugin for GuidePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GuideState>()
             .add_systems(Startup, spawn_guide_ui)
-            .add_systems(Update, (guide_controls, update_guide_ui).chain())
-            // Re-assert the pause after normal Update systems. This keeps the
-            // survival/body simulation frozen while somebody is reading even
-            // though the ordinary pause system may unpause virtual time.
-            .add_systems(PostUpdate, enforce_guide_pause);
+            .add_systems(Update, (guide_controls, update_guide_ui).chain());
     }
 }
 
@@ -46,7 +40,6 @@ fn pixel_highlight() -> Color {
 }
 
 fn spawn_guide_ui(mut commands: Commands) {
-    // Permanent discoverability without filling the HUD with tutorial text.
     commands.spawn((
         GuidePrompt,
         Text::new("[G]  WALKTHROUGH"),
@@ -125,12 +118,12 @@ fn spawn_guide_ui(mut commands: Commands) {
                             ));
                             inner.spawn((
                                 Text::new(
-                                    "1 // MOVE\nA / D or arrows move. SPACE jumps. Watch your landings: hard falls cause wounds, bleeding and fractures.\n\n\
-2 // LOOT + USE\nWalk over supplies to collect them. Press 1-9 to select a hotbar slot, then F to use it. Food restores hunger; water restores thirst; medical gear keeps injuries from becoming fatal.\n\n\
-3 // SURVIVE\nHunger slows you and can eventually damage health. Thirst becomes dangerous faster. If BOTH are low they make each other drain faster and health collapses faster too. Do not wait for 0%.\n\n\
-4 // CRAFT\nPress C to open crafting. Craft bandages, splints and medkits from scavenged materials before you desperately need them.\n\n\
-5 // ENEMIES\nPress E to attack nearby threats. Crawlers pressure you steadily. Silverfish are much faster deeper down, and their bites poison you: poison removes health in visible timed ticks for several seconds.\n\n\
-6 // OBJECTIVE\nDescend through the cave, recover the LOST CARGO, then reach extraction. The mission panel at top-left always shows which half of the objective you are on.\n\n\
+                                    "1 // MOVE\nA / D or arrows move. SPACE jumps. Hard falls cause wounds, bleeding and fractures.\n\n\
+2 // LOOT + USE\nWalk over supplies to collect them. Press 1-9 to select a hotbar slot, then F to use it. Food restores hunger; water restores thirst.\n\n\
+3 // SURVIVE\nLow hunger slows movement and can eventually hurt health. Low thirst narrows vision and becomes dangerous faster. When BOTH are low they drain each other faster and health falls faster too.\n\n\
+4 // CRAFT\nPress C to open crafting. Make bandages, splints and medkits before you desperately need them.\n\n\
+5 // ENEMIES\nPress E to attack nearby threats. Crawlers pressure you steadily. Silverfish are faster, detect you earlier and can poison you; poison removes health in visible one-second ticks.\n\n\
+6 // OBJECTIVE\nDescend through the cave, recover the LOST CARGO, then reach extraction. The top-left mission panel always shows the current objective.\n\n\
 EXPO // RECORDS\nPress L to view the current session top five. A qualifying finish lets you enter your name before the next player starts.\n\n\
 [G] CLOSE WALKTHROUGH"
                                 ),
@@ -147,13 +140,18 @@ EXPO // RECORDS\nPress L to view the current session top five. A qualifying fini
 
 fn guide_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
+    stats: Res<RunStats>,
     mut guide: ResMut<GuideState>,
     mut leaderboard: ResMut<LeaderboardState>,
     mut crafting: ResMut<CraftingMenu>,
-    mut virtual_time: ResMut<Time<Virtual>>,
-    mut velocity: Query<&mut LinearVelocity, With<Player>>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyG) {
+        return;
+    }
+
+    // The result/name-entry screen owns input after extraction. This avoids G
+    // stealing focus while an expo player is typing their leaderboard name.
+    if stats.extracted || leaderboard.name_entry {
         return;
     }
 
@@ -161,18 +159,13 @@ fn guide_controls(
     if guide.open {
         leaderboard.open = false;
         crafting.open = false;
-        virtual_time.pause();
-        if let Ok(mut velocity) = velocity.single_mut() {
-            *velocity = LinearVelocity::ZERO;
-        }
-    } else {
-        virtual_time.unpause();
     }
 }
 
 fn update_guide_ui(
     guide: Res<GuideState>,
     leaderboard: Res<LeaderboardState>,
+    crafting: Res<CraftingMenu>,
     stats: Res<RunStats>,
     player: Query<&Body, With<Player>>,
     mut overlay: Query<&mut Node, (With<GuideOverlay>, Without<GuidePrompt>)>,
@@ -186,34 +179,17 @@ fn update_guide_ui(
         };
     }
 
-    let dead = player
-        .single()
-        .map(|body| body.0.is_dead())
-        .unwrap_or(false);
+    let dead = player.single().map(|body| body.0.is_dead()).unwrap_or(false);
     if let Ok(mut prompt) = prompt.single_mut() {
-        prompt.display = if guide.open || leaderboard.open || dead || stats.extracted {
+        prompt.display = if guide.open
+            || leaderboard.open
+            || crafting.open
+            || dead
+            || stats.extracted
+        {
             Display::None
         } else {
             Display::Flex
         };
-    }
-}
-
-fn enforce_guide_pause(
-    guide: Res<GuideState>,
-    mut leaderboard: ResMut<LeaderboardState>,
-    mut crafting: ResMut<CraftingMenu>,
-    mut virtual_time: ResMut<Time<Virtual>>,
-    mut velocity: Query<&mut LinearVelocity, With<Player>>,
-) {
-    if !guide.open {
-        return;
-    }
-
-    leaderboard.open = false;
-    crafting.open = false;
-    virtual_time.pause();
-    if let Ok(mut velocity) = velocity.single_mut() {
-        *velocity = LinearVelocity::ZERO;
     }
 }
