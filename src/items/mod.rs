@@ -7,7 +7,7 @@ mod integration;
 mod inventory;
 mod item;
 
-pub use craft::try_craft;
+pub use craft::{recipe_descriptions, try_craft};
 pub use integration::{ItemsPlugin, LastEvent, Pickup, PlayerInventory};
 pub use inventory::Inventory;
 pub use item::{ItemKind, ItemStack};
