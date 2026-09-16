@@ -20,6 +20,8 @@ pub enum DamageCause {
     Fall,
     Trap,
     Enemy,
+    Poison,
+    Starvation,
     Dehydration,
 }
 
@@ -36,7 +38,13 @@ impl Plugin for BodyPlugin {
         app.init_resource::<LastDamageCause>()
             .add_systems(
                 Update,
-                (apply_landing_wounds, tick_cardio, enforce_unconsciousness, enforce_fracture_limp).chain(),
+                (
+                    apply_landing_wounds,
+                    tick_cardio,
+                    enforce_unconsciousness,
+                    enforce_fracture_limp,
+                )
+                    .chain(),
             );
     }
 }
