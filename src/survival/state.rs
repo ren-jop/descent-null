@@ -189,7 +189,10 @@ mod tests {
     #[test]
     fn low_stamina_is_exhausted() {
         let mut survival = SurvivalState::default();
-        survival.tick_stamina(10.0, true);
+        // At 0.05 stamina/sec, 18 seconds leaves 0.10 stamina, safely
+        // below the 0.15 exhaustion threshold. The old 10s expectation
+        // only drained to 0.50 and no longer matched the tuned gameplay.
+        survival.tick_stamina(18.0, true);
         assert!(survival.is_exhausted());
     }
 
