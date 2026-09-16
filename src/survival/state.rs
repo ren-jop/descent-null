@@ -1,44 +1,27 @@
-//! Hunger and thirst: two meters that drain over real time regardless of
-//! what else is happening. Engine-agnostic — wrapped as a `Survival`
-//! component in `integration.rs`.
-//!
-//! Numbers are placeholder-tuned for a short playtest session, not a real
-//! survival-game pace: full-to-empty takes minutes, not in-game days,
-//! specifically so the consequence is visible without waiting around.
-//! Revisit once there's a day/night cycle to peg these against instead.
+//! Simple survival needs: hunger and thirst drain over real time.
+//! They are intentionally direct and readable: no separate stamina meter.
+//! Low needs impair movement; critical dehydration can reduce blood volume
+//! through the Bevy integration layer.
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SurvivalState {
     /// 1.0 = fully fed, 0.0 = starving.
     hunger: f32,
-    /// 1.0 = fully hydrated, 0.0 = dehydrated.
+    /// 1.0 = fully hydrated, 0.0 = critically dehydrated.
     thirst: f32,
-    /// 1.0 = fully rested, 0.0 = exhausted.
-    stamina: f32,
 }
 
-/// Hunger empties over 3 minutes of continuous play — fast enough that
-/// a normal short session actually sees its effect, not just a cliff at
-/// the very end nobody reaches.
+/// Placeholder tuning for a short playtest session.
 const HUNGER_DRAIN_PER_SEC: f32 = 1.0 / 180.0;
-/// Thirst empties faster than hunger — 2.5 minutes.
 const THIRST_DRAIN_PER_SEC: f32 = 1.0 / 150.0;
-/// walking barely taxes this — 20s of continuous movement to empty it.
-/// it's meant to matter after a lot of sustained action, not on every step.
-const STAMINA_DRAIN_PER_SEC: f32 = 0.05;
-const STAMINA_REGEN_PER_SEC: f32 = 0.25;
-/// below this, movement gets a real penalty (see survival::integration).
-pub const EXHAUSTED_THRESHOLD: f32 = 0.15;
-/// below this fraction, hunger/thirst start dragging on stamina regen —
-/// a graduated approach instead of nothing-then-a-cliff at exactly 0%.
-const HARDSHIP_THRESHOLD: f32 = 0.4;
+/// Below this point a need starts impairing movement.
+const HARDSHIP_THRESHOLD: f32 = 0.40;
 
 impl Default for SurvivalState {
     fn default() -> Self {
         Self {
             hunger: 1.0,
             thirst: 1.0,
-            stamina: 1.0,
         }
     }
 }
@@ -52,10 +35,6 @@ impl SurvivalState {
         self.thirst
     }
 
-    pub fn stamina(&self) -> f32 {
-        self.stamina
-    }
-
     pub fn is_starving(&self) -> bool {
         self.hunger <= 0.0
     }
@@ -64,9 +43,6 @@ impl SurvivalState {
         self.thirst <= 0.0
     }
 
-    /// 0.0 while hunger is comfortable, ramping smoothly to 1.0 as it
-    /// empties below HARDSHIP_THRESHOLD. Feeds stamina regen so the
-    /// decline is felt gradually, not just as a cliff at exactly zero.
     pub fn hunger_hardship(&self) -> f32 {
         if self.hunger >= HARDSHIP_THRESHOLD {
             0.0
@@ -83,41 +59,19 @@ impl SurvivalState {
         }
     }
 
-    pub fn is_exhausted(&self) -> bool {
-        self.stamina < EXHAUSTED_THRESHOLD
-    }
-
-    /// Drains both meters by `dt` seconds' worth. Call once per frame.
     pub fn tick(&mut self, dt: f32) {
         self.hunger = (self.hunger - HUNGER_DRAIN_PER_SEC * dt).max(0.0);
         self.thirst = (self.thirst - THIRST_DRAIN_PER_SEC * dt).max(0.0);
     }
 
-    /// stamina drains while `exerting` (moving), regenerates otherwise.
-    /// hunger/thirst hardship (see above) slows regen smoothly — at full
-    /// hardship on either meter, regen drops to 40% of normal.
-    pub fn tick_stamina(&mut self, dt: f32, exerting: bool) {
-        if exerting {
-            self.stamina = (self.stamina - STAMINA_DRAIN_PER_SEC * dt).max(0.0);
-        } else {
-            let hardship = self.hunger_hardship().max(self.thirst_hardship());
-            let regen_penalty = 1.0 - 0.6 * hardship;
-            self.stamina = (self.stamina + STAMINA_REGEN_PER_SEC * regen_penalty * dt).min(1.0);
-        }
-    }
-
-    /// Restores hunger — a food item's effect. Clamped at full.
     pub fn eat(&mut self, amount: f32) {
         self.hunger = (self.hunger + amount).min(1.0);
     }
 
-    /// Restores thirst — a water item's effect. Clamped at full.
     pub fn drink(&mut self, amount: f32) {
         self.thirst = (self.thirst + amount).min(1.0);
     }
 
-    /// Restores every meter to full — used on player reset (a fresh run),
-    /// as opposed to `eat`/`drink` which restore hunger/thirst partially.
     pub fn reset(&mut self) {
         *self = Self::default();
     }
@@ -171,32 +125,6 @@ mod tests {
     }
 
     #[test]
-    fn exertion_drains_stamina() {
-        let mut survival = SurvivalState::default();
-        survival.tick_stamina(1.0, true);
-        assert!(survival.stamina() < 1.0);
-    }
-
-    #[test]
-    fn resting_regenerates_stamina() {
-        let mut survival = SurvivalState::default();
-        survival.tick_stamina(2.0, true);
-        let drained = survival.stamina();
-        survival.tick_stamina(2.0, false);
-        assert!(survival.stamina() > drained);
-    }
-
-    #[test]
-    fn low_stamina_is_exhausted() {
-        let mut survival = SurvivalState::default();
-        // At 0.05 stamina/sec, 18 seconds leaves 0.10 stamina, safely
-        // below the 0.15 exhaustion threshold. The old 10s expectation
-        // only drained to 0.50 and no longer matched the tuned gameplay.
-        survival.tick_stamina(18.0, true);
-        assert!(survival.is_exhausted());
-    }
-
-    #[test]
     fn eating_restores_hunger_only() {
         let mut survival = SurvivalState::default();
         survival.tick(200.0);
@@ -216,27 +144,10 @@ mod tests {
     }
 
     #[test]
-    fn no_hardship_while_comfortable() {
-        let survival = SurvivalState::default();
-        assert_eq!(survival.hunger_hardship(), 0.0);
-        assert_eq!(survival.thirst_hardship(), 0.0);
-    }
-
-    #[test]
-    fn hardship_ramps_up_as_hunger_drops_below_threshold() {
+    fn hardship_ramps_up_below_threshold() {
         let mut survival = SurvivalState::default();
-        survival.tick(179.0 * 0.9); // most of the way to empty hunger
+        survival.tick(150.0);
         assert!(survival.hunger_hardship() > 0.0);
-        assert!(survival.hunger_hardship() <= 1.0);
-    }
-
-    #[test]
-    fn hardship_slows_but_never_stops_stamina_regen() {
-        let mut survival = SurvivalState::default();
-        survival.tick(10_000.0); // both meters fully empty -> max hardship
-        survival.tick_stamina(5.0, true); // drain some first
-        let drained = survival.stamina();
-        survival.tick_stamina(1.0, false);
-        assert!(survival.stamina() > drained);
+        assert!(survival.thirst_hardship() > 0.0);
     }
 }
