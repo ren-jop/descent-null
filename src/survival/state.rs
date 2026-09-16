@@ -1,7 +1,6 @@
-//! Simple survival needs: hunger and thirst drain over real time.
-//! They are intentionally direct and readable: no separate stamina meter.
-//! Low needs impair movement; critical dehydration can reduce blood volume
-//! through the Bevy integration layer.
+//! Survival needs: hunger and thirst drain over real time and now interact.
+//! Low hydration makes hunger fall faster; low food makes thirst fall faster.
+//! This keeps the two meters related instead of feeling like unrelated timers.
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SurvivalState {
@@ -11,11 +10,14 @@ pub struct SurvivalState {
     thirst: f32,
 }
 
-/// Placeholder tuning for a short playtest session.
-const HUNGER_DRAIN_PER_SEC: f32 = 1.0 / 180.0;
-const THIRST_DRAIN_PER_SEC: f32 = 1.0 / 150.0;
-/// Below this point a need starts impairing movement.
-const HARDSHIP_THRESHOLD: f32 = 0.40;
+/// Tuned for a short expo play session: needs become relevant during a run,
+/// but still leave enough time for a new player to learn the route.
+const HUNGER_DRAIN_PER_SEC: f32 = 1.0 / 165.0;
+const THIRST_DRAIN_PER_SEC: f32 = 1.0 / 140.0;
+/// Below this point a need starts compounding the other need.
+const HARDSHIP_THRESHOLD: f32 = 0.45;
+const DEHYDRATION_HUNGER_MULTIPLIER: f32 = 0.55;
+const STARVATION_THIRST_MULTIPLIER: f32 = 0.35;
 
 impl Default for SurvivalState {
     fn default() -> Self {
@@ -60,8 +62,10 @@ impl SurvivalState {
     }
 
     pub fn tick(&mut self, dt: f32) {
-        self.hunger = (self.hunger - HUNGER_DRAIN_PER_SEC * dt).max(0.0);
-        self.thirst = (self.thirst - THIRST_DRAIN_PER_SEC * dt).max(0.0);
+        let hunger_pressure = 1.0 + self.thirst_hardship() * DEHYDRATION_HUNGER_MULTIPLIER;
+        let thirst_pressure = 1.0 + self.hunger_hardship() * STARVATION_THIRST_MULTIPLIER;
+        self.hunger = (self.hunger - HUNGER_DRAIN_PER_SEC * hunger_pressure * dt).max(0.0);
+        self.thirst = (self.thirst - THIRST_DRAIN_PER_SEC * thirst_pressure * dt).max(0.0);
     }
 
     pub fn eat(&mut self, amount: f32) {
@@ -106,6 +110,24 @@ mod tests {
     }
 
     #[test]
+    fn dehydration_accelerates_hunger_loss() {
+        let mut hydrated = SurvivalState { hunger: 0.8, thirst: 1.0 };
+        let mut dehydrated = SurvivalState { hunger: 0.8, thirst: 0.1 };
+        hydrated.tick(1.0);
+        dehydrated.tick(1.0);
+        assert!(dehydrated.hunger() < hydrated.hunger());
+    }
+
+    #[test]
+    fn starvation_accelerates_thirst_loss() {
+        let mut fed = SurvivalState { hunger: 1.0, thirst: 0.8 };
+        let mut starving = SurvivalState { hunger: 0.1, thirst: 0.8 };
+        fed.tick(1.0);
+        starving.tick(1.0);
+        assert!(starving.thirst() < fed.thirst());
+    }
+
+    #[test]
     fn meters_do_not_go_negative() {
         let mut survival = SurvivalState::default();
         survival.tick(10_000.0);
@@ -146,7 +168,7 @@ mod tests {
     #[test]
     fn hardship_ramps_up_below_threshold() {
         let mut survival = SurvivalState::default();
-        survival.tick(150.0);
+        survival.tick(120.0);
         assert!(survival.hunger_hardship() > 0.0);
         assert!(survival.thirst_hardship() > 0.0);
     }
