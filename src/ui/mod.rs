@@ -1,6 +1,6 @@
-//! Beginner-first player UI.
-//! The game always answers: what is my goal, what is selected, what does it
-//! do, and what is hurting me. Detailed crafting/help live in overlays.
+//! Compact beginner-first HUD.
+//! The normal play screen answers four things without covering the cave:
+//! objective, condition, selected item, and whether crafting is available.
 
 use avian2d::prelude::*;
 use bevy::app::AppExit;
@@ -9,7 +9,7 @@ use bevy::time::Virtual;
 
 use crate::body::Body;
 use crate::items::{
-    recipe_descriptions, CraftingMenu, LastEvent, PlayerInventory, SelectedSlot,
+    first_craftable, recipe_descriptions, CraftingMenu, LastEvent, PlayerInventory, SelectedSlot,
 };
 use crate::player::Player;
 use crate::survival::Survival;
@@ -21,13 +21,15 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TutorialState>()
             .init_resource::<PauseMenuState>()
+            .init_resource::<ObjectiveTransition>()
             .add_systems(Startup, spawn_hud)
             .add_systems(
                 Update,
                 (
                     pause_controls,
                     update_objective,
-                    update_depth_and_pack,
+                    update_objective_transition,
+                    update_depth_and_backpack,
                     update_vitals,
                     update_warning,
                     update_hotbar,
@@ -56,16 +58,37 @@ struct TutorialState {
     complete: bool,
 }
 
+#[derive(Resource)]
+struct ObjectiveTransition {
+    last_cargo: bool,
+    remaining: f32,
+    initialized: bool,
+}
+
+impl Default for ObjectiveTransition {
+    fn default() -> Self {
+        Self {
+            last_cargo: false,
+            remaining: 3.4,
+            initialized: false,
+        }
+    }
+}
+
 #[derive(Component)]
 struct GameplayHud;
 #[derive(Component)]
 struct ObjectiveText;
 #[derive(Component)]
+struct ObjectiveToast;
+#[derive(Component)]
 struct DepthText;
 #[derive(Component)]
-struct PackWeightText;
+struct BackpackText;
 #[derive(Component)]
 struct SelectedItemText;
+#[derive(Component)]
+struct CraftReadyText;
 #[derive(Component)]
 struct WarningText;
 #[derive(Component)]
@@ -114,7 +137,7 @@ fn panel_bg() -> Color {
 
 fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     spawn_objective(&mut commands);
-    spawn_depth_and_pack(&mut commands);
+    spawn_depth_and_backpack(&mut commands);
     spawn_vitals(&mut commands, &asset_server);
     spawn_hotbar(&mut commands, &asset_server);
     spawn_toasts(&mut commands);
@@ -130,10 +153,10 @@ fn spawn_objective(commands: &mut Commands) {
         GameplayHud,
         ObjectiveText,
         Text::new(
-            "OBJECTIVE 1/2 - RECOVER LOST CARGO\nGo DOWN. Land on the wide ledges. Reach the bottom chamber.",
+            "OBJECTIVE 1/2 - RECOVER LOST CARGO\nGo DOWN using the wide landing ledges.",
         ),
         TextFont {
-            font_size: 17.0,
+            font_size: 16.0,
             ..default()
         },
         TextColor(Color::srgb(0.97, 0.86, 0.55)),
@@ -141,21 +164,21 @@ fn spawn_objective(commands: &mut Commands) {
             position_type: PositionType::Absolute,
             top: Val::Px(14.0),
             left: Val::Px(16.0),
-            width: Val::Px(520.0),
-            padding: UiRect::all(Val::Px(10.0)),
+            width: Val::Px(470.0),
+            padding: UiRect::all(Val::Px(9.0)),
             ..default()
         },
         BackgroundColor(panel_bg()),
     ));
 }
 
-fn spawn_depth_and_pack(commands: &mut Commands) {
+fn spawn_depth_and_backpack(commands: &mut Commands) {
     commands.spawn((
         GameplayHud,
         DepthText,
         Text::new("DEPTH: LAYER 0 / 4"),
         TextFont {
-            font_size: 16.0,
+            font_size: 15.0,
             ..default()
         },
         TextColor(Color::srgb(0.84, 0.81, 0.72)),
@@ -167,20 +190,35 @@ fn spawn_depth_and_pack(commands: &mut Commands) {
         },
     ));
 
-    // Pack weight lives in the top-right, completely separate from the
-    // bottom vitals/hotbar so small window sizes cannot make them overlap.
     commands.spawn((
         GameplayHud,
-        PackWeightText,
-        Text::new("PACK: 0 / 12 WEIGHT"),
+        BackpackText,
+        Text::new("BACKPACK: 0 WEIGHT"),
         TextFont {
-            font_size: 13.0,
+            font_size: 12.0,
             ..default()
         },
         TextColor(Color::srgb(0.70, 0.68, 0.62)),
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Px(40.0),
+            top: Val::Px(39.0),
+            right: Val::Px(18.0),
+            ..default()
+        },
+    ));
+
+    commands.spawn((
+        GameplayHud,
+        CraftReadyText,
+        Text::new(""),
+        TextFont {
+            font_size: 12.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.58, 0.90, 0.56)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(60.0),
             right: Val::Px(18.0),
             ..default()
         },
@@ -245,18 +283,19 @@ fn spawn_vitals(commands: &mut Commands, asset_server: &AssetServer) {
     }
 
     commands.spawn((
+        GameplayHud,
         WarningText,
         Text::new(""),
         TextFont {
-            font_size: 14.0,
+            font_size: 13.0,
             ..default()
         },
         TextColor(Color::srgb(1.0, 0.60, 0.38)),
         Node {
             display: Display::None,
             position_type: PositionType::Absolute,
-            left: Val::Px(LEFT),
-            bottom: Val::Px(BOTTOM + 111.0),
+            left: Val::Px(14.0),
+            bottom: Val::Px(125.0),
             padding: UiRect::all(Val::Px(7.0)),
             ..default()
         },
@@ -283,8 +322,8 @@ fn spawn_hotbar(commands: &mut Commands, asset_server: &AssetServer) {
                 bar.spawn((
                     HotbarSlot(index),
                     Node {
-                        width: Val::Px(44.0),
-                        height: Val::Px(44.0),
+                        width: Val::Px(40.0),
+                        height: Val::Px(40.0),
                         position_type: PositionType::Relative,
                         ..default()
                     },
@@ -301,10 +340,10 @@ fn spawn_hotbar(commands: &mut Commands, asset_server: &AssetServer) {
                         Node {
                             display: Display::None,
                             position_type: PositionType::Absolute,
-                            left: Val::Px(6.0),
-                            top: Val::Px(6.0),
-                            width: Val::Px(32.0),
-                            height: Val::Px(32.0),
+                            left: Val::Px(5.0),
+                            top: Val::Px(5.0),
+                            width: Val::Px(30.0),
+                            height: Val::Px(30.0),
                             ..default()
                         },
                     ));
@@ -312,7 +351,7 @@ fn spawn_hotbar(commands: &mut Commands, asset_server: &AssetServer) {
                         HotbarQty(index),
                         Text::new(""),
                         TextFont {
-                            font_size: 11.0,
+                            font_size: 10.0,
                             ..default()
                         },
                         TextColor(Color::WHITE),
@@ -327,7 +366,7 @@ fn spawn_hotbar(commands: &mut Commands, asset_server: &AssetServer) {
                     slot.spawn((
                         Text::new(format!("{}", index + 1)),
                         TextFont {
-                            font_size: 11.0,
+                            font_size: 10.0,
                             ..default()
                         },
                         TextColor(Color::srgb(0.90, 0.86, 0.72)),
@@ -342,32 +381,47 @@ fn spawn_hotbar(commands: &mut Commands, asset_server: &AssetServer) {
             }
         });
 
-    commands.spawn((
-        GameplayHud,
-        SelectedItemText,
-        Text::new("[1] EMPTY - walk into a labelled item to pick it up"),
-        TextFont {
-            font_size: 14.0,
-            ..default()
-        },
-        TextColor(Color::srgb(0.92, 0.88, 0.72)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(0.0),
-            bottom: Val::Px(61.0),
-            width: Val::Percent(100.0),
-            justify_content: JustifyContent::Center,
-            ..default()
-        },
-    ));
+    // Fixed-width centred panel: unlike the old full-width text line this
+    // cannot run underneath the vitals panel on common window sizes.
+    commands
+        .spawn((
+            GameplayHud,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                bottom: Val::Px(58.0),
+                width: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                SelectedItemText,
+                Text::new("[1] EMPTY - pick up a labelled item"),
+                TextFont {
+                    font_size: 12.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.92, 0.88, 0.72)),
+                Node {
+                    width: Val::Px(430.0),
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+                BackgroundColor(panel_bg()),
+            ));
+        });
 }
 
 fn spawn_toasts(commands: &mut Commands) {
     commands.spawn((
+        GameplayHud,
         EventToast,
         Text::new(""),
         TextFont {
-            font_size: 15.0,
+            font_size: 14.0,
             ..default()
         },
         TextColor(Color::srgb(0.96, 0.92, 0.78)),
@@ -375,7 +429,7 @@ fn spawn_toasts(commands: &mut Commands) {
             display: Display::None,
             position_type: PositionType::Absolute,
             left: Val::Px(0.0),
-            bottom: Val::Px(91.0),
+            bottom: Val::Px(94.0),
             width: Val::Percent(100.0),
             justify_content: JustifyContent::Center,
             ..default()
@@ -383,10 +437,11 @@ fn spawn_toasts(commands: &mut Commands) {
     ));
 
     commands.spawn((
+        GameplayHud,
         DepthToast,
         Text::new(""),
         TextFont {
-            font_size: 20.0,
+            font_size: 19.0,
             ..default()
         },
         TextColor(Color::srgb(0.86, 0.81, 0.68)),
@@ -400,11 +455,32 @@ fn spawn_toasts(commands: &mut Commands) {
             ..default()
         },
     ));
+
+    commands.spawn((
+        GameplayHud,
+        ObjectiveToast,
+        Text::new(""),
+        TextFont {
+            font_size: 21.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.98, 0.86, 0.48)),
+        Node {
+            display: Display::None,
+            position_type: PositionType::Absolute,
+            top: Val::Px(145.0),
+            left: Val::Px(0.0),
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+    ));
 }
 
 fn spawn_tutorial(commands: &mut Commands) {
     commands
         .spawn((
+            GameplayHud,
             TutorialPanel,
             Node {
                 position_type: PositionType::Absolute,
@@ -418,18 +494,16 @@ fn spawn_tutorial(commands: &mut Commands) {
         .with_children(|panel| {
             panel.spawn((
                 TutorialText,
-                Text::new(
-                    "NEW PLAYER 1/5: Your mission is to go DOWN. Use A / D or arrows to move.",
-                ),
+                Text::new("NEW PLAYER 1/5: Move with A / D or arrows."),
                 TextFont {
-                    font_size: 15.0,
+                    font_size: 14.0,
                     ..default()
                 },
                 TextColor(Color::srgb(0.78, 0.94, 0.78)),
                 Node {
-                    width: Val::Px(700.0),
+                    width: Val::Px(660.0),
                     justify_content: JustifyContent::Center,
-                    padding: UiRect::all(Val::Px(8.0)),
+                    padding: UiRect::all(Val::Px(7.0)),
                     ..default()
                 },
                 BackgroundColor(panel_bg()),
@@ -493,7 +567,7 @@ fn spawn_pause_overlay(commands: &mut Commands) {
         .with_children(|overlay| {
             overlay.spawn((
                 Text::new(
-                    "PAUSED\n\nEsc  Resume\nR    Restart run\nQ    Quit to desktop\n\nBASICS\nA/D or arrows  Move\nSpace          Jump\n1-9            Select hotbar slot\nF              Use selected item\nC              Open crafting\nE              Melee attack\n\nMISSION\nFollow the guaranteed ledges DOWN.\nRecover the cargo in the bottom chamber.\nThen cross the chamber to the green EXTRACTION pad.",
+                    "PAUSED\n\nEsc  Resume\nR    Restart run\nQ    Quit\n\nA/D  Move\nSpace  Jump\n1-9  Select item\nF  Use item\nC  Craft\nE  Attack\n\nGo DOWN, recover the cargo, then reach EXTRACTION.",
                 ),
                 TextFont {
                     font_size: 18.0,
@@ -501,7 +575,7 @@ fn spawn_pause_overlay(commands: &mut Commands) {
                 },
                 TextColor(Color::srgb(0.91, 0.89, 0.82)),
                 Node {
-                    width: Val::Px(500.0),
+                    width: Val::Px(480.0),
                     padding: UiRect::all(Val::Px(24.0)),
                     ..default()
                 },
@@ -633,27 +707,56 @@ fn update_objective(stats: Res<RunStats>, mut text: Query<&mut Text, With<Object
         return;
     };
     **text = if stats.cargo_recovered {
-        "OBJECTIVE 2/2 - DELIVER THE CARGO\nCross the bottom chamber to the green EXTRACTION pad.".to_string()
+        "OBJECTIVE 2/2 - DELIVER CARGO\nCross the bottom chamber to green EXTRACTION.".to_string()
     } else {
-        "OBJECTIVE 1/2 - RECOVER LOST CARGO\nGo DOWN. Land on the wide ledges. Reach the bottom chamber.".to_string()
+        "OBJECTIVE 1/2 - RECOVER LOST CARGO\nGo DOWN using the wide landing ledges.".to_string()
     };
 }
 
-fn update_depth_and_pack(
+fn update_objective_transition(
+    time: Res<Time>,
+    stats: Res<RunStats>,
+    mut state: ResMut<ObjectiveTransition>,
+    mut toast: Query<(&mut Node, &mut Text), With<ObjectiveToast>>,
+) {
+    let Ok((mut node, mut text)) = toast.single_mut() else {
+        return;
+    };
+
+    if !state.initialized {
+        state.initialized = true;
+        state.last_cargo = stats.cargo_recovered;
+        state.remaining = 3.4;
+        **text = "NEW OBJECTIVE\nRECOVER THE LOST CARGO BELOW".to_string();
+    } else if stats.cargo_recovered != state.last_cargo {
+        state.last_cargo = stats.cargo_recovered;
+        state.remaining = 3.4;
+        **text = if stats.cargo_recovered {
+            "OBJECTIVE UPDATED\nDELIVER THE CARGO TO EXTRACTION".to_string()
+        } else {
+            "NEW RUN\nRECOVER THE LOST CARGO BELOW".to_string()
+        };
+    }
+
+    if state.remaining > 0.0 {
+        state.remaining = (state.remaining - time.delta_secs()).max(0.0);
+        node.display = Display::Flex;
+    } else {
+        node.display = Display::None;
+    }
+}
+
+fn update_depth_and_backpack(
     depth: Res<CurrentDepth>,
     inventory: Query<&PlayerInventory, With<Player>>,
-    mut depth_text: Query<&mut Text, (With<DepthText>, Without<PackWeightText>)>,
-    mut pack_text: Query<&mut Text, (With<PackWeightText>, Without<DepthText>)>,
+    mut depth_text: Query<&mut Text, (With<DepthText>, Without<BackpackText>)>,
+    mut backpack_text: Query<&mut Text, (With<BackpackText>, Without<DepthText>)>,
 ) {
     if let Ok(mut text) = depth_text.single_mut() {
         **text = format!("DEPTH: LAYER {} / 4", depth.0);
     }
-    if let (Ok(inventory), Ok(mut text)) = (inventory.single(), pack_text.single_mut()) {
-        **text = format!(
-            "PACK: {} / {} WEIGHT",
-            inventory.0.used_weight(),
-            inventory.0.capacity()
-        );
+    if let (Ok(inventory), Ok(mut text)) = (inventory.single(), backpack_text.single_mut()) {
+        **text = format!("BACKPACK: {} WEIGHT", inventory.0.used_weight());
     }
 }
 
@@ -671,10 +774,7 @@ fn update_vitals(
             VitalKind::Thirst => ("THIRST", survival.0.thirst()),
             VitalKind::Stamina => ("STAMINA", survival.0.stamina()),
         };
-        **text = format!(
-            "{label} {:>3}%",
-            (value.clamp(0.0, 1.0) * 100.0).round() as i32
-        );
+        **text = format!("{label} {:>3}%", (value.clamp(0.0, 1.0) * 100.0).round() as i32);
     }
 }
 
@@ -690,13 +790,13 @@ fn update_warning(
     };
 
     let message = if body.0.total_bleed_rate() > 0.0 {
-        Some("BLEEDING - select BANDAGE with 1-9, then press F")
+        Some("BLEEDING - select BANDAGE, press F")
     } else if body.0.has_untreated_leg_fracture() {
-        Some("FRACTURE - select SPLINT with 1-9, then press F")
+        Some("FRACTURE - select SPLINT, press F")
     } else if survival.0.thirst() < 0.22 {
-        Some("VERY THIRSTY - select WATER with 1-9, then press F")
+        Some("VERY THIRSTY - select WATER, press F")
     } else if survival.0.hunger() < 0.22 {
-        Some("VERY HUNGRY - select FOOD with 1-9, then press F")
+        Some("VERY HUNGRY - select FOOD, press F")
     } else {
         None
     };
@@ -717,9 +817,16 @@ fn update_hotbar(
     mut icons: Query<(&HotbarIcon, &mut Node, &mut ImageNode), Without<HotbarQty>>,
     mut quantities: Query<
         (&HotbarQty, &mut Node, &mut Text),
-        (Without<HotbarIcon>, Without<SelectedItemText>),
+        (Without<HotbarIcon>, Without<SelectedItemText>, Without<CraftReadyText>),
     >,
-    mut selected_text: Query<&mut Text, (With<SelectedItemText>, Without<HotbarQty>)>,
+    mut selected_text: Query<
+        &mut Text,
+        (With<SelectedItemText>, Without<HotbarQty>, Without<CraftReadyText>),
+    >,
+    mut craft_ready: Query<
+        &mut Text,
+        (With<CraftReadyText>, Without<HotbarQty>, Without<SelectedItemText>),
+    >,
 ) {
     let Ok(inventory) = inventory.single() else {
         return;
@@ -743,7 +850,7 @@ fn update_hotbar(
     for (slot, mut node, mut text) in &mut quantities {
         if let Some(stack) = inventory.0.stacks().get(slot.0) {
             node.display = Display::Flex;
-            **text = format!("{}", stack.quantity);
+            **text = stack.quantity.to_string();
         } else {
             node.display = Display::None;
         }
@@ -752,12 +859,12 @@ fn update_hotbar(
     if let Ok(mut text) = selected_text.single_mut() {
         **text = if let Some(stack) = inventory.0.stacks().get(selected.0) {
             let action = if stack.kind.is_directly_usable() {
-                "F = USE"
+                "F USE"
             } else {
-                "C = CRAFT"
+                "C CRAFT"
             };
             format!(
-                "[{}] {} x{}  |  {}  |  {}",
+                "[{}] {} x{}  |  {} - {}",
                 selected.0 + 1,
                 stack.kind.label().to_uppercase(),
                 stack.quantity,
@@ -765,10 +872,15 @@ fn update_hotbar(
                 stack.kind.purpose()
             )
         } else {
-            format!(
-                "[{}] EMPTY - press another number or pick up a labelled item",
-                selected.0 + 1
-            )
+            format!("[{}] EMPTY - pick up a labelled item", selected.0 + 1)
+        };
+    }
+
+    if let Ok(mut text) = craft_ready.single_mut() {
+        **text = if let Some(kind) = first_craftable(&inventory.0) {
+            format!("CRAFT READY: {}  [C]", kind.label().to_uppercase())
+        } else {
+            String::new()
         };
     }
 }
@@ -822,60 +934,39 @@ fn update_tutorial(
     panel.display = Display::Flex;
 
     match tutorial.step {
-        0 => {
-            if keyboard.any_pressed([
-                KeyCode::KeyA,
-                KeyCode::KeyD,
-                KeyCode::ArrowLeft,
-                KeyCode::ArrowRight,
-            ]) {
-                tutorial.step = 1;
-            }
-        }
-        1 => {
-            if keyboard.just_pressed(KeyCode::Space) {
-                tutorial.step = 2;
-            }
-        }
-        2 => {
-            if inventory
-                .single()
-                .map(|inventory| !inventory.0.stacks().is_empty())
-                .unwrap_or(false)
-            {
-                tutorial.step = 3;
-            }
-        }
-        3 => {
-            if keyboard.any_just_pressed([
-                KeyCode::Digit1,
-                KeyCode::Digit2,
-                KeyCode::Digit3,
-                KeyCode::Digit4,
-                KeyCode::Digit5,
-                KeyCode::Digit6,
-                KeyCode::Digit7,
-                KeyCode::Digit8,
-                KeyCode::Digit9,
-                KeyCode::KeyF,
-            ]) {
-                tutorial.step = 4;
-            }
-        }
-        4 => {
-            if keyboard.just_pressed(KeyCode::KeyC) {
-                tutorial.complete = true;
-            }
-        }
-        _ => tutorial.complete = true,
+        0 if keyboard.any_pressed([
+            KeyCode::KeyA,
+            KeyCode::KeyD,
+            KeyCode::ArrowLeft,
+            KeyCode::ArrowRight,
+        ]) => tutorial.step = 1,
+        1 if keyboard.just_pressed(KeyCode::Space) => tutorial.step = 2,
+        2 if inventory
+            .single()
+            .map(|inventory| !inventory.0.stacks().is_empty())
+            .unwrap_or(false) => tutorial.step = 3,
+        3 if keyboard.any_just_pressed([
+            KeyCode::Digit1,
+            KeyCode::Digit2,
+            KeyCode::Digit3,
+            KeyCode::Digit4,
+            KeyCode::Digit5,
+            KeyCode::Digit6,
+            KeyCode::Digit7,
+            KeyCode::Digit8,
+            KeyCode::Digit9,
+            KeyCode::KeyF,
+        ]) => tutorial.step = 4,
+        4 if keyboard.just_pressed(KeyCode::KeyC) => tutorial.complete = true,
+        _ => {}
     }
 
     let message = match tutorial.step {
-        0 => "NEW PLAYER 1/5: Your mission is to go DOWN. Use A / D or arrows to move.",
-        1 => "NEW PLAYER 2/5: Press SPACE to jump. Falling is normal - aim for the wide ledges below.",
-        2 => "NEW PLAYER 3/5: Items have names above them. Walk into one to pick it up.",
-        3 => "NEW PLAYER 4/5: Press 1-9 to select a hotbar item. The selected item/action is shown above the hotbar.",
-        _ => "NEW PLAYER 5/5: Press C to see simple recipes. The top-left objective always tells you what to do next.",
+        0 => "NEW PLAYER 1/5: Move with A / D or arrows.",
+        1 => "NEW PLAYER 2/5: SPACE jumps. Aim falls onto wide ledges.",
+        2 => "NEW PLAYER 3/5: Walk into labelled items to collect them.",
+        3 => "NEW PLAYER 4/5: 1-9 selects. F uses the selected item.",
+        _ => "NEW PLAYER 5/5: C opens crafting. Top-left always shows the goal.",
     };
     if let Ok(mut text) = text.single_mut() {
         **text = message.to_string();
@@ -899,7 +990,7 @@ fn update_crafting_overlay(
         if let Ok(mut text) = text.single_mut() {
             let recipes = recipe_descriptions().join("\n\n");
             **text = format!(
-                "CRAFTING - choose what you actually need\n\n{recipes}\n\nPress 1, 2 or 3 to craft that recipe. C or Esc closes this screen."
+                "CRAFTING\n\n{recipes}\n\nPress 1, 2 or 3 to craft. C or Esc closes."
             );
         }
     }
@@ -934,9 +1025,9 @@ fn update_death_overlay(
         overlay.display = Display::Flex;
         if let Ok(mut text) = text.single_mut() {
             let cause = if body.0.total_bleed_rate() > 0.0 {
-                "Cause: untreated bleeding. Next run: use a BANDAGE sooner."
+                "Cause: untreated bleeding. Use a BANDAGE sooner."
             } else {
-                "Cause: catastrophic trauma / blood loss. Next run: control long falls."
+                "Cause: catastrophic trauma / blood loss. Control long falls."
             };
             **text = format!(
                 "{cause}\nDeepest layer: {}\nSurvived: {:.0}s\n\nPress R to restart",
@@ -960,7 +1051,7 @@ fn update_win_overlay(
         overlay.display = Display::Flex;
         if let Ok(mut text) = text.single_mut() {
             **text = format!(
-                "Cargo recovered and delivered to extraction.\nDeepest layer: {}\nTime: {:.0}s\n\nPress R to run again",
+                "Cargo delivered to extraction.\nDeepest layer: {}\nTime: {:.0}s\n\nPress R to run again",
                 stats.deepest_layer, stats.elapsed_secs
             );
         }
