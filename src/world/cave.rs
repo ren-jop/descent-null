@@ -1,6 +1,7 @@
-//! Procedural cave with a readable mission loop:
-//! descend -> survive hazards/enemies -> recover cargo -> climb back to EXIT.
-//! The cave regenerates on every restart.
+//! Procedural cave built around a guaranteed downward route.
+//! Randomness adds side loot, hazards and enemies; it never gets to remove
+//! the main descent. Progression is intentionally fall/ledge driven: small
+//! controlled drops are normal, while careless multi-layer falls are deadly.
 
 use avian2d::prelude::*;
 use bevy::prelude::*;
@@ -14,14 +15,15 @@ use crate::player::Player;
 
 const LAYER_COUNT: i32 = 4;
 const LAYER_HEIGHT: f32 = 700.0;
-const PLATFORMS_PER_LAYER: std::ops::Range<i32> = 6..9;
-const X_BOUND: f32 = 820.0;
+const X_BOUND: f32 = 760.0;
+const FLOOR_Y: f32 = -(LAYER_HEIGHT * LAYER_COUNT as f32) - 200.0;
+const MAIN_STEPS: usize = 24;
 const CARGO_RADIUS: f32 = 58.0;
-const EXIT_RADIUS: f32 = 95.0;
-const EXIT_POS: Vec2 = Vec2::new(-420.0, 40.0);
+const EXTRACTION_RADIUS: f32 = 90.0;
 const NORMAL_ACCELERATION: f32 = 1250.0;
 const SURGE_ACCELERATION: f32 = 1850.0;
 const SURGE_SECONDS: f32 = 8.0;
+const ANNOUNCEMENT_SECONDS: f32 = 2.5;
 
 #[derive(Resource, Default)]
 pub struct CurrentDepth(pub usize);
@@ -48,12 +50,10 @@ struct SurgeState {
     remaining: f32,
 }
 
-const ANNOUNCEMENT_SECONDS: f32 = 2.5;
-
 #[derive(Component)]
 struct Cargo;
 #[derive(Component)]
-struct ExitMarker;
+struct ExtractionMarker;
 #[derive(Component)]
 struct Hazard;
 #[derive(Component)]
@@ -90,6 +90,14 @@ fn spawn_cave(mut commands: Commands, asset_server: Res<AssetServer>) {
     generate_cave(&mut commands, &asset_server);
 }
 
+fn extraction_pos() -> Vec2 {
+    Vec2::new(-520.0, FLOOR_Y + 78.0)
+}
+
+fn cargo_pos() -> Vec2 {
+    Vec2::new(500.0, FLOOR_Y + 78.0)
+}
+
 fn regenerate_on_restart(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
@@ -114,110 +122,153 @@ fn regenerate_on_restart(
 fn generate_cave(commands: &mut Commands, asset_server: &AssetServer) {
     let mut rng = rand::thread_rng();
 
+    // Safe opening platform. The first few drops are intentionally obvious so
+    // a new player learns that going DOWN is normal before the cave gets mean.
     let mut x = -420.0;
-    let mut y = -40.0;
+    let start_y = -40.0;
     spawn_platform(
         commands,
         asset_server,
-        Vec2::new(x, y),
-        Vec2::new(300.0, 30.0),
+        Vec2::new(x, start_y),
+        Vec2::new(320.0, 30.0),
         0,
     );
 
-    // The start is also the extraction point after cargo recovery.
     commands.spawn((
-        ExitMarker,
         CaveObject,
-        Text2d::new("EXIT"),
-        TextFont { font_size: 18.0, ..default() },
-        TextColor(Color::srgb(0.55, 0.92, 0.58)),
-        Transform::from_xyz(EXIT_POS.x, EXIT_POS.y + 48.0, 2.0),
+        Text2d::new("GO DOWN"),
+        TextFont { font_size: 16.0, ..default() },
+        TextColor(Color::srgb(0.90, 0.82, 0.56)),
+        Transform::from_xyz(x + 70.0, start_y + 58.0, 2.0),
     ));
 
-    let floor_y = -(LAYER_HEIGHT * LAYER_COUNT as f32) - 200.0;
+    // The guaranteed descent spine. Every next platform is below the previous
+    // one, has a modest horizontal shift, and is wide enough to catch a normal
+    // controlled fall. This path exists before any random side content.
+    let target_y = FLOOR_Y + 170.0;
+    let base_drop = (start_y - target_y) / MAIN_STEPS as f32;
+    let mut y = start_y;
+
+    for step in 1..=MAIN_STEPS {
+        let progress = step as f32 / MAIN_STEPS as f32;
+        let layer = ((progress * LAYER_COUNT as f32).floor() as usize).min(LAYER_COUNT as usize - 1);
+        let beginner = step <= 4;
+
+        let drop = if beginner {
+            base_drop * 0.82
+        } else {
+            base_drop * rng.gen_range(0.88..1.12)
+        };
+        y -= drop;
+        x = (x + rng.gen_range(-165.0..165.0)).clamp(-X_BOUND, X_BOUND);
+
+        let width = if beginner {
+            300.0
+        } else {
+            rng.gen_range(225.0..300.0)
+        };
+        let pos = Vec2::new(x, y);
+        spawn_platform(commands, asset_server, pos, Vec2::new(width, 26.0), layer);
+
+        // Early path teaches supplies with useful, recognisable items before
+        // random crafting junk starts appearing.
+        if step == 2 {
+            spawn_pickup(commands, asset_server, pos + Vec2::new(0.0, 31.0), ItemStack::new(ItemKind::Water, 1));
+        } else if step == 4 {
+            spawn_pickup(commands, asset_server, pos + Vec2::new(0.0, 31.0), ItemStack::new(ItemKind::Bandage, 1));
+        } else if rng.gen_bool(0.58) {
+            let item = random_item_for_layer(&mut rng, layer);
+            spawn_pickup(commands, asset_server, pos + Vec2::new(0.0, 31.0), item);
+        }
+
+        // Main route gets pressure, but layer 0 stays largely instructional.
+        if layer > 0 && rng.gen_bool((0.18 + layer as f64 * 0.06).min(0.40)) {
+            let enemy = spawn_enemy(commands, asset_server, pos + Vec2::new(rng.gen_range(-70.0..70.0), 24.0));
+            commands.entity(enemy).insert(CaveObject);
+        }
+
+        if layer > 0 && rng.gen_bool(0.14) {
+            spawn_hazard(commands, asset_server, pos + Vec2::new(rng.gen_range(-55.0..55.0), 20.0));
+        }
+
+        if layer > 1 && rng.gen_bool(0.08) {
+            spawn_surge(commands, asset_server, pos + Vec2::new(0.0, 45.0));
+        }
+
+        // Optional side branch: same vertical neighbourhood, so skipping it can
+        // never block descent. Side paths hold extra rewards and extra risk.
+        if !beginner && rng.gen_bool(0.42) {
+            let side = if rng.gen_bool(0.5) { 1.0 } else { -1.0 };
+            let ledge_x = (x + side * rng.gen_range(260.0..360.0)).clamp(-X_BOUND, X_BOUND);
+            let ledge_pos = Vec2::new(ledge_x, y + rng.gen_range(-20.0..35.0));
+            spawn_platform(commands, asset_server, ledge_pos, Vec2::new(130.0, 22.0), layer);
+            spawn_pickup(
+                commands,
+                asset_server,
+                ledge_pos + Vec2::new(0.0, 28.0),
+                random_item_for_layer(&mut rng, layer),
+            );
+            if layer > 1 && rng.gen_bool(0.35) {
+                let enemy = spawn_enemy(commands, asset_server, ledge_pos + Vec2::new(0.0, 22.0));
+                commands.entity(enemy).insert(CaveObject);
+            }
+        }
+    }
+
+    // Bottom chamber. A wide floor prevents accidental void falls, but cargo
+    // and extraction are on opposite sides so reaching the bottom is not an
+    // instant win. The player must cross a dangerous final room.
     spawn_platform(
         commands,
         asset_server,
-        Vec2::new(0.0, floor_y),
-        Vec2::new(3200.0, 80.0),
+        Vec2::new(0.0, FLOOR_Y),
+        Vec2::new(1800.0, 80.0),
         LAYER_COUNT as usize,
     );
 
+    let cargo = cargo_pos();
     commands.spawn((
         Cargo,
         CaveObject,
         Sprite {
             image: asset_server.load("sprites/item_cargo.png"),
-            custom_size: Some(Vec2::splat(52.0)),
+            custom_size: Some(Vec2::splat(54.0)),
             ..default()
         },
-        Transform::from_xyz(300.0, floor_y + 70.0, 1.0),
+        Transform::from_xyz(cargo.x, cargo.y, 1.0),
+    ));
+    commands.spawn((
+        CaveObject,
+        Text2d::new("MISSION CARGO"),
+        TextFont { font_size: 15.0, ..default() },
+        TextColor(Color::srgb(0.96, 0.80, 0.45)),
+        Transform::from_xyz(cargo.x, cargo.y + 45.0, 2.0),
     ));
 
-    // The objective chamber is guarded. Reaching the bottom is the middle
-    // of the mission now, not an instant win.
-    for guard_x in [150.0, 275.0, 420.0] {
-        let enemy = spawn_enemy(commands, asset_server, Vec2::new(guard_x, floor_y + 65.0));
+    let extract = extraction_pos();
+    commands.spawn((
+        ExtractionMarker,
+        CaveObject,
+        Sprite {
+            color: Color::srgb(0.20, 0.68, 0.36),
+            custom_size: Some(Vec2::new(110.0, 16.0)),
+            ..default()
+        },
+        Transform::from_xyz(extract.x, FLOOR_Y + 45.0, 0.8),
+    ));
+    commands.spawn((
+        CaveObject,
+        Text2d::new("EXTRACTION - bring cargo here"),
+        TextFont { font_size: 15.0, ..default() },
+        TextColor(Color::srgb(0.55, 0.94, 0.60)),
+        Transform::from_xyz(extract.x, extract.y + 40.0, 2.0),
+    ));
+
+    for guard_x in [-250.0, 30.0, 270.0] {
+        let enemy = spawn_enemy(commands, asset_server, Vec2::new(guard_x, FLOOR_Y + 64.0));
         commands.entity(enemy).insert(CaveObject);
     }
-
-    for layer in 0..LAYER_COUNT {
-        let layer_top = -(layer as f32) * LAYER_HEIGHT;
-        let platform_count = rng.gen_range(PLATFORMS_PER_LAYER);
-
-        for _ in 0..platform_count {
-            let width = rng.gen_range(150.0..290.0);
-            x = (x + rng.gen_range(-260.0..260.0)).clamp(-X_BOUND, X_BOUND);
-            y -= rng.gen_range(85.0..155.0);
-            y = y.max(layer_top - LAYER_HEIGHT + 60.0);
-
-            spawn_platform(
-                commands,
-                asset_server,
-                Vec2::new(x, y),
-                Vec2::new(width, 26.0),
-                layer as usize,
-            );
-
-            if rng.gen_bool(0.68) {
-                let item = random_item_for_layer(&mut rng, layer as usize);
-                spawn_pickup(commands, asset_server, Vec2::new(x, y + 30.0), item);
-            }
-
-            if layer > 0 {
-                let enemy_chance = 0.24 + layer as f64 * 0.055;
-                if rng.gen_bool(enemy_chance.min(0.46)) {
-                    let enemy = spawn_enemy(commands, asset_server, Vec2::new(x, y + 22.0));
-                    commands.entity(enemy).insert(CaveObject);
-                }
-
-                if rng.gen_bool(0.18) {
-                    let hazard_x = x + rng.gen_range(-45.0..45.0);
-                    spawn_hazard(commands, asset_server, Vec2::new(hazard_x, y + 20.0));
-                }
-
-                if rng.gen_bool(0.10) {
-                    spawn_surge(commands, asset_server, Vec2::new(x, y + 42.0));
-                }
-            }
-
-            if rng.gen_bool(0.38) {
-                let side = if rng.gen_bool(0.5) { 1.0 } else { -1.0 };
-                let ledge_x =
-                    (x + side * rng.gen_range(250.0..370.0)).clamp(-X_BOUND, X_BOUND);
-                let ledge_pos = Vec2::new(ledge_x, y + rng.gen_range(-35.0..45.0));
-                spawn_platform(
-                    commands,
-                    asset_server,
-                    ledge_pos,
-                    Vec2::new(120.0, 22.0),
-                    layer as usize,
-                );
-                let item = random_item_for_layer(&mut rng, layer as usize);
-                spawn_pickup(commands, asset_server, ledge_pos + Vec2::new(0.0, 28.0), item);
-            }
-        }
-    }
+    spawn_hazard(commands, asset_server, Vec2::new(-80.0, FLOOR_Y + 46.0));
 }
 
 fn track_depth(
@@ -233,7 +284,11 @@ fn track_depth(
     let layer = (-transform.translation.y / LAYER_HEIGHT).floor().max(0.0) as usize;
     let clamped = layer.min(LAYER_COUNT as usize);
     if clamped != depth.0 {
-        announcement.text = format!("Layer {clamped}");
+        announcement.text = if clamped == 0 {
+            "Surface".to_string()
+        } else {
+            format!("Layer {clamped} - danger increases below")
+        };
         announcement.remaining = ANNOUNCEMENT_SECONDS;
     }
     depth.0 = clamped;
@@ -266,12 +321,12 @@ fn check_objective(
             if player_pos.distance(cargo_transform.translation.truncate()) <= CARGO_RADIUS {
                 stats.cargo_recovered = true;
                 commands.entity(entity).despawn();
-                last.show("CARGO RECOVERED - return to the EXIT at the surface");
+                last.show("OBJECTIVE UPDATED: cargo secured - cross the bottom chamber to EXTRACTION");
             }
         }
-    } else if player_pos.distance(EXIT_POS) <= EXIT_RADIUS {
+    } else if player_pos.distance(extraction_pos()) <= EXTRACTION_RADIUS {
         stats.extracted = true;
-        last.show("MISSION COMPLETE - cargo extracted");
+        last.show("MISSION COMPLETE - cargo delivered to extraction");
     }
 }
 
@@ -281,7 +336,7 @@ fn spawn_hazard(commands: &mut Commands, asset_server: &AssetServer, pos: Vec2) 
         CaveObject,
         Sprite {
             image: asset_server.load("sprites/tile_rock_4.png"),
-            color: Color::srgb(0.72, 0.22, 0.18),
+            color: Color::srgb(0.78, 0.20, 0.16),
             custom_size: Some(Vec2::new(72.0, 14.0)),
             ..default()
         },
@@ -311,24 +366,33 @@ fn damage_from_hazards(
                 body.0.apply_wound(wound);
             }
             cooldown.0 = 1.4;
-            last.show("SPIKES - leg cut and bleeding");
+            last.show("SPIKES: leg cut and bleeding - use a BANDAGE");
             break;
         }
     }
 }
 
 fn spawn_surge(commands: &mut Commands, asset_server: &AssetServer, pos: Vec2) {
-    commands.spawn((
-        SurgePickup,
-        CaveObject,
-        Sprite {
-            image: asset_server.load("sprites/item_battery.png"),
-            color: Color::srgb(0.45, 0.95, 1.0),
-            custom_size: Some(Vec2::splat(30.0)),
-            ..default()
-        },
-        Transform::from_xyz(pos.x, pos.y, 0.9),
-    ));
+    commands
+        .spawn((
+            SurgePickup,
+            CaveObject,
+            Sprite {
+                image: asset_server.load("sprites/item_battery.png"),
+                color: Color::srgb(0.45, 0.95, 1.0),
+                custom_size: Some(Vec2::splat(30.0)),
+                ..default()
+            },
+            Transform::from_xyz(pos.x, pos.y, 0.9),
+        ))
+        .with_children(|pickup| {
+            pickup.spawn((
+                Text2d::new("SURGE BOOST"),
+                TextFont { font_size: 11.0, ..default() },
+                TextColor(Color::srgb(0.55, 0.94, 1.0)),
+                Transform::from_xyz(0.0, 25.0, 0.2),
+            ));
+        });
 }
 
 fn collect_surge(
@@ -346,7 +410,7 @@ fn collect_surge(
         if player_pos.distance(transform.translation.truncate()) <= 42.0 {
             commands.entity(entity).despawn();
             surge.remaining = SURGE_SECONDS;
-            last.show("NULL SURGE - movement boosted for 8 seconds");
+            last.show("POWERUP: NULL SURGE - faster movement for 8 seconds");
             break;
         }
     }
@@ -399,16 +463,25 @@ fn spawn_pickup(
     pos: Vec2,
     item: ItemStack,
 ) {
-    commands.spawn((
-        CaveObject,
-        Sprite {
-            image: asset_server.load(item.kind.sprite_path()),
-            custom_size: Some(Vec2::splat(24.0)),
-            ..default()
-        },
-        Transform::from_xyz(pos.x, pos.y, 0.5),
-        Pickup(item),
-    ));
+    commands
+        .spawn((
+            CaveObject,
+            Sprite {
+                image: asset_server.load(item.kind.sprite_path()),
+                custom_size: Some(Vec2::splat(24.0)),
+                ..default()
+            },
+            Transform::from_xyz(pos.x, pos.y, 0.5),
+            Pickup(item),
+        ))
+        .with_children(|pickup| {
+            pickup.spawn((
+                Text2d::new(item.kind.label().to_uppercase()),
+                TextFont { font_size: 10.0, ..default() },
+                TextColor(Color::srgb(0.88, 0.86, 0.78)),
+                Transform::from_xyz(0.0, 22.0, 0.2),
+            ));
+        });
 }
 
 fn random_item_for_layer(rng: &mut impl Rng, layer: usize) -> ItemStack {
