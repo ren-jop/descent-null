@@ -1,9 +1,11 @@
+mod guide;
 mod hud;
 mod leaderboard;
 mod survival_feedback;
 
 use bevy::prelude::*;
 
+pub use guide::GuideState;
 pub use leaderboard::LeaderboardState;
 
 pub struct HudPlugin;
@@ -14,6 +16,7 @@ impl Plugin for HudPlugin {
             hud::HudPlugin,
             leaderboard::LeaderboardPlugin,
             survival_feedback::SurvivalFeedbackPlugin,
+            guide::GuidePlugin,
         ));
     }
 }
