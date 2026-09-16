@@ -61,7 +61,10 @@ fn spawn_music(mut commands: Commands, asset_server: Res<AssetServer>) {
     let _ = generate_death_sfx("assets/audio/generated_death_fall.wav", DeathTone::Fall);
     let _ = generate_death_sfx("assets/audio/generated_death_trap.wav", DeathTone::Trap);
     let _ = generate_death_sfx("assets/audio/generated_death_enemy.wav", DeathTone::Enemy);
-    let _ = generate_death_sfx("assets/audio/generated_death_dehydration.wav", DeathTone::Dehydration);
+    let _ = generate_death_sfx(
+        "assets/audio/generated_death_dehydration.wav",
+        DeathTone::Dehydration,
+    );
 
     commands.spawn((
         AudioPlayer::new(asset_server.load(asset_path)),
@@ -84,9 +87,11 @@ fn play_death_sound(
             "audio/generated_death_trap.wav"
         } else {
             match cause.0 {
-                DamageCause::Enemy => "audio/generated_death_enemy.wav",
+                DamageCause::Enemy | DamageCause::Poison => "audio/generated_death_enemy.wav",
                 DamageCause::Trap => "audio/generated_death_trap.wav",
-                DamageCause::Dehydration => "audio/generated_death_dehydration.wav",
+                DamageCause::Starvation | DamageCause::Dehydration => {
+                    "audio/generated_death_dehydration.wav"
+                }
                 DamageCause::Fall | DamageCause::Unknown => "audio/generated_death_fall.wav",
             }
         };
@@ -200,13 +205,17 @@ fn generate_score(path: &str) -> std::io::Result<()> {
             (174.61, 0.045, 2.0, 0.018),
         ] {
             let motion = 0.64 + 0.36 * (TAU * lfo * t + phase).sin();
-            sample += amp * motion * (TAU * freq * t + 0.18 * (TAU * 0.014 * t + phase).sin()).sin();
+            sample += amp
+                * motion
+                * (TAU * freq * t + 0.18 * (TAU * 0.014 * t + phase).sin()).sin();
         }
 
         let pulse_t = t % 3.0;
         if pulse_t < 1.1 {
             let env = (-4.0 * pulse_t).exp();
-            sample += env * (0.18 * (TAU * 48.0 * pulse_t).sin() + 0.065 * (TAU * 72.0 * pulse_t).sin());
+            sample += env
+                * (0.18 * (TAU * 48.0 * pulse_t).sin()
+                    + 0.065 * (TAU * 72.0 * pulse_t).sin());
         }
 
         let note_slot = ((t / 3.0).floor() as usize) % motif.len();
@@ -214,12 +223,15 @@ fn generate_score(path: &str) -> std::io::Result<()> {
         if note_t < 1.35 {
             let freq = motif[note_slot];
             let env = (-3.6 * note_t).exp();
-            sample += env * (0.085 * (TAU * freq * note_t).sin()
-                + 0.032 * (TAU * freq * 2.01 * note_t).sin()
-                + 0.018 * (TAU * freq * 0.5 * note_t).sin());
+            sample += env
+                * (0.085 * (TAU * freq * note_t).sin()
+                    + 0.032 * (TAU * freq * 2.01 * note_t).sin()
+                    + 0.018 * (TAU * freq * 0.5 * note_t).sin());
         }
 
-        noise_state = noise_state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        noise_state = noise_state
+            .wrapping_mul(1_664_525)
+            .wrapping_add(1_013_904_223);
         let noise = ((noise_state >> 8) as f32 / 16_777_215.0) * 2.0 - 1.0;
         let metal_t = (t + 0.75) % 6.0;
         if metal_t < 0.32 {
