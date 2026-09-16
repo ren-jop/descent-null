@@ -20,8 +20,6 @@ pub enum DamageCause {
     Fall,
     Trap,
     Enemy,
-    Poison,
-    Starvation,
     Dehydration,
 }
 
