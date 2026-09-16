@@ -95,30 +95,23 @@ fn collect_pickups(
         if player_pos.distance(transform.translation.truncate()) > PICKUP_RADIUS {
             continue;
         }
-        if inventory.0.add(pickup.0) {
-            // Select the newly created stack when possible, so a beginner can
-            // immediately see it highlighted instead of wondering where it went.
-            if let Some(index) = inventory
-                .0
-                .stacks()
-                .iter()
-                .position(|stack| stack.kind == pickup.0.kind)
-            {
-                selected.0 = index.min(8);
-            }
-            last.show(format!(
-                "PICKED UP: {} x{} - {}",
-                pickup.0.kind.label().to_uppercase(),
-                pickup.0.quantity,
-                pickup.0.kind.purpose()
-            ));
-            commands.entity(entity).despawn();
-        } else {
-            last.show(format!(
-                "PACK FULL: cannot carry {} - use/drop supplies first",
-                pickup.0.kind.label().to_uppercase()
-            ));
+
+        inventory.0.add(pickup.0);
+        if let Some(index) = inventory
+            .0
+            .stacks()
+            .iter()
+            .position(|stack| stack.kind == pickup.0.kind)
+        {
+            selected.0 = index.min(8);
         }
+        last.show(format!(
+            "PICKED UP: {} x{} - {}",
+            pickup.0.kind.label().to_uppercase(),
+            pickup.0.quantity,
+            pickup.0.kind.purpose()
+        ));
+        commands.entity(entity).despawn();
     }
 }
 
@@ -159,7 +152,7 @@ fn inventory_controls(
                 "Press C to craft with it"
             };
             last.show(format!(
-                "SLOT {} SELECTED: {} x{} - {}. {}",
+                "SLOT {}: {} x{} - {}. {}",
                 slot + 1,
                 stack.kind.label().to_uppercase(),
                 stack.quantity,
@@ -167,7 +160,7 @@ fn inventory_controls(
                 action
             ));
         } else {
-            last.show(format!("SLOT {} SELECTED: empty", slot + 1));
+            last.show(format!("SLOT {}: empty", slot + 1));
         }
     }
 }
@@ -186,7 +179,7 @@ fn use_selected_item(
         return;
     };
     let Some(stack) = inventory.0.stacks().get(selected.0).copied() else {
-        last.show(format!("SLOT {} IS EMPTY - pick up an item first", selected.0 + 1));
+        last.show(format!("SLOT {} IS EMPTY", selected.0 + 1));
         return;
     };
 
@@ -202,12 +195,22 @@ fn use_selected_item(
             last.show("USED WATER - thirst restored");
         }
         ItemKind::Bandage => {
-            if body.0.total_bleed_rate() <= 0.0 {
-                last.show("BANDAGE NOT NEEDED - you are not bleeding");
+            let bleeding = body.0.total_bleed_rate() > 0.0;
+            let injured = body.0.blood_volume() < 0.999;
+            if !bleeding && !injured {
+                last.show("BANDAGE NOT NEEDED - health is already full");
             } else {
                 inventory.0.remove(ItemKind::Bandage, 1);
-                body.0.treat_worst_bleeding();
-                last.show("USED BANDAGE - worst active bleed stopped");
+                let stopped = body.0.treat_all_bleeding();
+                body.0.heal_blood_volume(0.12);
+                if stopped > 0 {
+                    last.show(format!(
+                        "USED BANDAGE - stopped {} bleed(s) and restored some health",
+                        stopped
+                    ));
+                } else {
+                    last.show("USED BANDAGE - restored some health");
+                }
             }
         }
         ItemKind::Splint => {
@@ -226,12 +229,12 @@ fn use_selected_item(
                 inventory.0.remove(ItemKind::Medkit, 1);
                 body.0.heal_blood_volume(0.35);
                 body.0.treat_pain();
-                last.show("USED MEDKIT - blood restored and pain treated");
+                last.show("USED MEDKIT - health restored and pain treated");
             }
         }
         ItemKind::Scrap | ItemKind::Cloth | ItemKind::Metal | ItemKind::Battery => {
             last.show(format!(
-                "{} IS A CRAFTING MATERIAL - press C to see what it makes",
+                "{} IS A CRAFTING MATERIAL - press C to see recipes",
                 stack.kind.label().to_uppercase()
             ));
         }
@@ -251,7 +254,7 @@ fn crafting_controls(
     if keyboard.just_pressed(KeyCode::KeyC) {
         crafting.open = !crafting.open;
         if crafting.open {
-            last.show("CRAFTING OPEN - recipes 1, 2 and 3 show exactly what you need");
+            last.show("CRAFTING OPEN - choose a numbered recipe");
         }
         return;
     }
@@ -268,7 +271,7 @@ fn crafting_controls(
         return;
     };
     if !craft::can_craft(&inventory.0, index) {
-        last.show(format!("RECIPE {}: missing required materials", index + 1));
+        last.show(format!("RECIPE {}: missing materials", index + 1));
         return;
     }
     match craft::try_craft_index(&mut inventory.0, index) {
