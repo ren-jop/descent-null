@@ -4,6 +4,7 @@
 
 use avian2d::prelude::*;
 use bevy::prelude::*;
+use rand::Rng;
 
 use crate::body::{landing_wound, Body, BodyRegion, DamageCause, LastDamageCause};
 use crate::items::LastEvent;
@@ -79,8 +80,16 @@ impl Plugin for EnemyPlugin {
     }
 }
 
+/// Existing world generation calls this generic spawner. Shallow layers stay
+/// crawler-heavy, while deeper spawns have a chance to become a Skitter.
 pub fn spawn_enemy(commands: &mut Commands, asset_server: &AssetServer, pos: Vec2) -> Entity {
-    spawn_kind(commands, asset_server, pos, EnemyKind::Crawler)
+    let mut rng = rand::thread_rng();
+    let kind = if pos.y < -1200.0 && rng.gen_bool(0.38) {
+        EnemyKind::Skitter
+    } else {
+        EnemyKind::Crawler
+    };
+    spawn_kind(commands, asset_server, pos, kind)
 }
 
 pub fn spawn_skitter(commands: &mut Commands, asset_server: &AssetServer, pos: Vec2) -> Entity {
@@ -141,8 +150,6 @@ fn enemy_ai(
         let distance = pos.distance(player_pos);
         let mut state = state_for_distance(distance);
 
-        // Skitters notice the player sooner than crawlers and therefore create
-        // more pressure on deep ledges without needing a ranged attack.
         if enemy.kind == EnemyKind::Skitter && distance <= 430.0 && state == EnemyState::Idle {
             state = EnemyState::Chasing;
         }
