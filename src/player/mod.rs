@@ -23,6 +23,7 @@ impl Plugin for PlayerPlugin {
                 (
                     animate_player_visual,
                     animate_bleeding,
+                    update_dehydration_vision,
                     follow_camera,
                     add_shake_on_landing,
                     apply_camera_shake,
@@ -46,6 +47,8 @@ const HINT_SECONDS: f32 = 7.0;
 /// low inside it. Raising the child visual keeps the exact controller/collider
 /// while putting the boots visually on top of platform tiles.
 const VISUAL_BASE_Y: f32 = 6.0;
+const THIRST_VISION_START: f32 = 0.50;
+const MIN_VIGNETTE_SCALE: f32 = 0.62;
 
 #[derive(Resource)]
 pub struct SpawnHint(pub f32);
@@ -151,6 +154,30 @@ fn animate_bleeding(
         sprite.color = Color::srgba(0.82, 0.06, 0.04, 0.0);
         transform.scale = Vec3::ONE;
     }
+}
+
+/// Thirst owns a visual consequence instead of another movement penalty.
+/// Below 50% hydration the cave vignette gradually closes in; below roughly
+/// 20% the narrowing is unmistakable, matching the FIELD LOG warning.
+fn update_dehydration_vision(
+    time: Res<Time>,
+    player: Query<&Survival, With<Player>>,
+    mut vignette: Query<(&mut Sprite, &mut Transform), With<Vignette>>,
+) {
+    let (Ok(survival), Ok((mut sprite, mut transform))) = (player.single(), vignette.single_mut()) else { return; };
+    let thirst = survival.0.thirst();
+    let severity = if thirst >= THIRST_VISION_START {
+        0.0
+    } else {
+        (1.0 - thirst / THIRST_VISION_START).clamp(0.0, 1.0)
+    };
+
+    let mut scale = 1.0 - (1.0 - MIN_VIGNETTE_SCALE) * severity;
+    if thirst < 0.12 {
+        scale -= 0.015 * (time.elapsed_secs() * 4.5).sin().abs();
+    }
+    transform.scale = Vec3::splat(scale.max(MIN_VIGNETTE_SCALE - 0.02));
+    sprite.color = Color::srgba(0.90, 0.94, 1.0, 0.78 + 0.22 * severity);
 }
 
 fn follow_camera(time: Res<Time>, player: Query<&Transform, With<Player>>, mut follow: ResMut<CameraFollow>) {
