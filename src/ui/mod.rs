@@ -715,8 +715,11 @@ fn update_hotbar(
     asset_server: Res<AssetServer>,
     mut slots: Query<(&HotbarSlot, &mut BackgroundColor)>,
     mut icons: Query<(&HotbarIcon, &mut Node, &mut ImageNode), Without<HotbarQty>>,
-    mut quantities: Query<(&HotbarQty, &mut Node, &mut Text), Without<HotbarIcon>>,
-    mut selected_text: Query<&mut Text, With<SelectedItemText>>,
+    mut quantities: Query<
+        (&HotbarQty, &mut Node, &mut Text),
+        (Without<HotbarIcon>, Without<SelectedItemText>),
+    >,
+    mut selected_text: Query<&mut Text, (With<SelectedItemText>, Without<HotbarQty>)>,
 ) {
     let Ok(inventory) = inventory.single() else {
         return;
