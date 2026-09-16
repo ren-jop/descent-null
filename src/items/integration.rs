@@ -57,7 +57,7 @@ fn collect_pickups(
         if let Some(index) = inventory.0.stacks().iter().position(|stack| stack.kind == pickup.0.kind) {
             selected.0 = index.min(8);
         }
-        last.show(format!("+{} {}  {}", pickup.0.quantity, pickup.0.kind.label().to_uppercase(), pickup.0.kind.purpose()));
+        last.show(format!("PICKUP  {} x{}", pickup.0.kind.label().to_uppercase(), pickup.0.quantity));
         commands.entity(entity).despawn();
     }
 }
@@ -69,19 +69,9 @@ fn digit_pressed(keyboard: &ButtonInput<KeyCode>) -> Option<usize> {
 
 fn inventory_controls(
     keyboard: Res<ButtonInput<KeyCode>>, crafting: Res<CraftingMenu>, mut selected: ResMut<SelectedSlot>,
-    inventory: Query<&PlayerInventory>, mut last: ResMut<LastEvent>,
 ) {
     if crafting.open { return; }
-    let Some(slot) = digit_pressed(&keyboard) else { return; };
-    selected.0 = slot;
-    if let Ok(inventory) = inventory.single() {
-        if let Some(stack) = inventory.0.stacks().get(slot) {
-            let action = if stack.kind.is_directly_usable() { "F USE" } else { "C CRAFT" };
-            last.show(format!("[{}] {} x{}   {}", slot + 1, stack.kind.label().to_uppercase(), stack.quantity, action));
-        } else {
-            last.show(format!("[{}] EMPTY", slot + 1));
-        }
-    }
+    if let Some(slot) = digit_pressed(&keyboard) { selected.0 = slot; }
 }
 
 fn use_selected_item(
@@ -93,17 +83,17 @@ fn use_selected_item(
     let Some(stack) = inventory.0.stacks().get(selected.0).copied() else { last.show("EMPTY SLOT"); return; };
 
     match stack.kind {
-        ItemKind::Food => { inventory.0.remove(ItemKind::Food, 1); survival.0.eat(0.4); last.show("FOOD USED  Hunger restored"); }
-        ItemKind::Water => { inventory.0.remove(ItemKind::Water, 1); survival.0.drink(0.4); last.show("WATER USED  Thirst restored"); }
+        ItemKind::Food => { inventory.0.remove(ItemKind::Food, 1); survival.0.eat(0.4); last.show("FOOD USED  HUNGER +40%"); }
+        ItemKind::Water => { inventory.0.remove(ItemKind::Water, 1); survival.0.drink(0.4); last.show("WATER USED  THIRST +40%"); }
         ItemKind::Bandage => {
-            let bleeding = body.0.total_bleed_rate() > 0.0;
+            let bleeding = body.0.total_bleed_rate() > 0.0005;
             let injured = body.0.blood_volume() < 0.999;
             if !bleeding && !injured { last.show("BANDAGE NOT NEEDED"); }
             else {
                 inventory.0.remove(ItemKind::Bandage, 1);
                 body.0.treat_all_bleeding();
                 body.0.heal_blood_volume(0.12);
-                last.show("BANDAGED  Bleeding stopped + health restored");
+                last.show("BANDAGED  BLEEDING STOPPED  HEALTH +12%");
             }
         }
         ItemKind::Splint => {
@@ -116,11 +106,11 @@ fn use_selected_item(
                 inventory.0.remove(ItemKind::Medkit, 1);
                 body.0.heal_blood_volume(0.35);
                 body.0.treat_pain();
-                last.show("MEDKIT USED  Health restored");
+                last.show("MEDKIT USED  HEALTH +35%");
             }
         }
         ItemKind::Scrap | ItemKind::Cloth | ItemKind::Metal | ItemKind::Battery => {
-            last.show(format!("{}  Crafting material [C]", stack.kind.label().to_uppercase()));
+            last.show("CRAFTING MATERIAL  PRESS C");
         }
     }
 }
@@ -137,7 +127,7 @@ fn crafting_controls(
     let Ok(mut inventory) = inventory.single_mut() else { return; };
     if !craft::can_craft(&inventory.0, index) { last.show("MISSING MATERIALS"); return; }
     match craft::try_craft_index(&mut inventory.0, index) {
-        Some(kind) => last.show(format!("CRAFTED {}", kind.label().to_uppercase())),
+        Some(kind) => last.show(format!("CRAFTED  {}", kind.label().to_uppercase())),
         None => last.show("CRAFT FAILED"),
     }
 }
