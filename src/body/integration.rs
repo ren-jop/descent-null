@@ -20,6 +20,7 @@ pub enum DamageCause {
     Fall,
     Trap,
     Enemy,
+    Dehydration,
 }
 
 #[derive(Resource, Default)]
