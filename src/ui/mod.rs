@@ -1,10 +1,7 @@
-//! HUD: a bottom-left vitals cluster (icon + bar per stat, plus a
-//! warning line explaining any passive health drain), a bottom-right
-//! fixed-grid inventory (always shows all slots, Minecraft-style) with
-//! a recipe reference panel above it, a persistent depth label, fading
-//! toasts for spawn instructions/objective/depth changes/events, a
-//! developer debug overlay (F3, hidden by default), and full-screen
-//! death/win overlays that hide everything else while active.
+//! Player-facing HUD. The UI deliberately explains simulation state instead
+//! of forcing the player to infer it: large labelled vitals, explicit damage
+//! causes, a persistent objective, fixed inventory slots, recipe purposes,
+//! contextual event toasts, and clean death/win transitions.
 
 use avian2d::prelude::*;
 use bevy::prelude::*;
@@ -31,9 +28,10 @@ impl Plugin for HudPlugin {
                     capture_landings,
                     update_debug_text,
                     update_vital_bars,
-                    update_stamina_visibility,
+                    update_vital_values,
                     update_survival_warning,
                     update_inventory_panel,
+                    update_inventory_header,
                     update_depth_label,
                     update_spawn_hint_toast,
                     update_depth_toast,
@@ -47,20 +45,10 @@ impl Plugin for HudPlugin {
     }
 }
 
-/// entities tagged with this are forced to Display::None while dead or
-/// extracted, regardless of whatever their own update system set this
-/// frame — enforce_death_hide runs last in the chain specifically to
-/// win that fight.
 #[derive(Component)]
 struct HideOnDeath;
 
-/// entities tagged with this have NO per-frame system that otherwise
-/// sets their Display — reset_always_visible force-shows them at the
-/// START of every frame, so enforce_death_hide's None (while dead) gets
-/// correctly undone again on the next frame once alive. Without this,
-/// anything only ever hidden once by enforce_death_hide would stay
-/// hidden forever after the first death — a real bug an earlier version
-/// of this file had for the vitals panel, the depth label, and more.
+/// Gameplay HUD elements that should reappear automatically after R reset.
 #[derive(Component)]
 struct AlwaysVisible;
 
@@ -87,13 +75,16 @@ enum VitalKind {
 struct VitalFill(VitalKind);
 
 #[derive(Component)]
-struct VitalPart(VitalKind);
+struct VitalValue(VitalKind);
 
 #[derive(Component)]
 struct SurvivalWarning;
 
 #[derive(Component)]
 struct DepthLabel;
+
+#[derive(Component)]
+struct InventoryHeader;
 
 #[derive(Component)]
 struct InventoryIcon(usize);
@@ -125,7 +116,7 @@ struct EventToastPanel;
 struct EventToastText;
 
 fn panel_bg() -> Color {
-    Color::srgba(0.06, 0.055, 0.05, 0.68)
+    Color::srgba(0.06, 0.055, 0.05, 0.84)
 }
 
 fn bar_bg() -> Color {
@@ -133,23 +124,21 @@ fn bar_bg() -> Color {
 }
 
 fn slot_bg() -> Color {
-    Color::srgba(0.16, 0.15, 0.14, 0.9)
+    Color::srgba(0.16, 0.15, 0.14, 0.94)
 }
 
 const INVENTORY_SLOTS: usize = 9;
 const INVENTORY_COLS: usize = 3;
-const INVENTORY_SLOT: f32 = 46.0;
-const INVENTORY_GAP: f32 = 6.0;
-/// bar outline width minus 2x border — see spawn_vitals_panel. kept in
-/// sync with it manually; if you resize the bars there, update this too.
-const VITAL_BAR_CONTENT_WIDTH: f32 = 222.0;
+const INVENTORY_SLOT: f32 = 58.0;
+const INVENTORY_GAP: f32 = 8.0;
+const VITAL_BAR_CONTENT_WIDTH: f32 = 282.0;
 
 fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     spawn_debug_panel(&mut commands);
     spawn_vitals_panel(&mut commands, &asset_server);
     spawn_inventory_panel(&mut commands, &asset_server);
     spawn_recipe_panel(&mut commands);
-    spawn_depth_label(&mut commands);
+    spawn_objective_and_depth(&mut commands);
     spawn_toasts(&mut commands);
     spawn_death_overlay(&mut commands);
     spawn_win_overlay(&mut commands);
@@ -160,34 +149,33 @@ fn spawn_debug_panel(commands: &mut Commands) {
         DebugPanel,
         HideOnDeath,
         Text::new(""),
-        TextFont { font_size: 13.0, ..default() },
+        TextFont { font_size: 15.0, ..default() },
         TextColor(Color::srgb(0.65, 0.85, 0.65)),
         Node {
             display: Display::None,
             position_type: PositionType::Absolute,
-            top: Val::Px(14.0),
-            left: Val::Px(16.0),
+            top: Val::Px(18.0),
+            left: Val::Px(18.0),
+            padding: UiRect::all(Val::Px(8.0)),
             ..default()
         },
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.65)),
     ));
 }
 
 fn spawn_vitals_panel(commands: &mut Commands, asset_server: &AssetServer) {
-    const PANEL_LEFT: f32 = 14.0;
-    const PANEL_BOTTOM: f32 = 14.0;
-    const ICON_LEFT: f32 = 20.0;
-    const BAR_LEFT: f32 = 64.0;
-    const OUTLINE_WIDTH: f32 = 230.0;
-    const BORDER: f32 = 4.0;
+    const PANEL_LEFT: f32 = 18.0;
+    const PANEL_BOTTOM: f32 = 18.0;
+    const ICON_LEFT: f32 = 28.0;
+    const LABEL_LEFT: f32 = 74.0;
+    const BAR_LEFT: f32 = 154.0;
+    const OUTLINE_WIDTH: f32 = 292.0;
+    const BORDER: f32 = 5.0;
+    const ROW_HEIGHT: f32 = 38.0;
     const ROW_GAP: f32 = 8.0;
-    const HEALTH_BOTTOM: f32 = 26.0;
-    const HEALTH_HEIGHT: f32 = 34.0;
-    const HEALTH_ICON: f32 = 30.0;
-    const MINOR_HEIGHT: f32 = 18.0;
-    const MINOR_ICON: f32 = 22.0;
-    const PANEL_WIDTH: f32 = BAR_LEFT + OUTLINE_WIDTH + 16.0;
-    const PANEL_HEIGHT: f32 = 150.0;
+    const FIRST_BOTTOM: f32 = 24.0;
+    const PANEL_WIDTH: f32 = 462.0;
+    const PANEL_HEIGHT: f32 = 208.0;
 
     commands.spawn((
         HideOnDeath,
@@ -203,142 +191,170 @@ fn spawn_vitals_panel(commands: &mut Commands, asset_server: &AssetServer) {
         BackgroundColor(panel_bg()),
     ));
 
-    let hunger_bottom = HEALTH_BOTTOM + HEALTH_HEIGHT + ROW_GAP;
-    let thirst_bottom = hunger_bottom + MINOR_HEIGHT + ROW_GAP;
-    let stamina_bottom = thirst_bottom + MINOR_HEIGHT + ROW_GAP;
-
-    // (kind, icon, bar color, bottom offset, outline height, icon size,
-    // always-visible-when-alive). health is the biggest/brightest — the
-    // stat that matters most, kept green per the original design ask.
-    let rows: [(VitalKind, &str, Color, f32, f32, f32, bool); 4] = [
-        (VitalKind::Health, "sprites/icon_health.png", Color::srgb(0.30, 0.82, 0.34), HEALTH_BOTTOM, HEALTH_HEIGHT, HEALTH_ICON, true),
-        (VitalKind::Hunger, "sprites/icon_hunger.png", Color::srgb(0.85, 0.62, 0.22), hunger_bottom, MINOR_HEIGHT, MINOR_ICON, true),
-        (VitalKind::Thirst, "sprites/icon_thirst.png", Color::srgb(0.30, 0.62, 0.92), thirst_bottom, MINOR_HEIGHT, MINOR_ICON, true),
-        (VitalKind::Stamina, "sprites/icon_stamina.png", Color::srgb(0.68, 0.85, 0.32), stamina_bottom, MINOR_HEIGHT, MINOR_ICON, false),
+    let rows = [
+        (VitalKind::Health, "HEALTH", "sprites/icon_health.png", Color::srgb(0.30, 0.82, 0.34)),
+        (VitalKind::Hunger, "HUNGER", "sprites/icon_hunger.png", Color::srgb(0.85, 0.62, 0.22)),
+        (VitalKind::Thirst, "THIRST", "sprites/icon_thirst.png", Color::srgb(0.30, 0.62, 0.92)),
+        (VitalKind::Stamina, "STAMINA", "sprites/icon_stamina.png", Color::srgb(0.68, 0.85, 0.32)),
     ];
-    let outline_color = Color::srgb(0.42, 0.39, 0.34);
-    let content_width = OUTLINE_WIDTH - 2.0 * BORDER;
 
-    for (kind, icon_path, color, bottom, outline_height, icon_size, always_visible) in rows {
-        // icon, outline, background all share the same Display fate as
-        // each other — only "always_visible" (health/hunger/thirst) get
-        // the AlwaysVisible tag; stamina keeps its own dedicated
-        // show-while-moving system (update_stamina_visibility) instead.
-        let mut icon = commands.spawn((
-            VitalPart(kind),
+    for (index, (kind, label, icon_path, color)) in rows.into_iter().enumerate() {
+        let bottom = FIRST_BOTTOM + index as f32 * (ROW_HEIGHT + ROW_GAP);
+
+        commands.spawn((
             HideOnDeath,
+            AlwaysVisible,
             ImageNode::new(asset_server.load(icon_path)),
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(ICON_LEFT),
-                bottom: Val::Px(bottom - (icon_size - outline_height) / 2.0),
-                width: Val::Px(icon_size),
-                height: Val::Px(icon_size),
+                bottom: Val::Px(bottom + 2.0),
+                width: Val::Px(34.0),
+                height: Val::Px(34.0),
                 ..default()
             },
         ));
-        if always_visible {
-            icon.insert(AlwaysVisible);
-        }
 
-        let mut outline = commands.spawn((
-            VitalPart(kind),
+        commands.spawn((
             HideOnDeath,
+            AlwaysVisible,
+            Text::new(label),
+            TextFont { font_size: 16.0, ..default() },
+            TextColor(Color::srgb(0.88, 0.86, 0.79)),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(LABEL_LEFT),
+                bottom: Val::Px(bottom + 8.0),
+                ..default()
+            },
+        ));
+
+        commands.spawn((
+            HideOnDeath,
+            AlwaysVisible,
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(BAR_LEFT),
                 bottom: Val::Px(bottom),
                 width: Val::Px(OUTLINE_WIDTH),
-                height: Val::Px(outline_height),
+                height: Val::Px(ROW_HEIGHT),
                 ..default()
             },
-            BackgroundColor(outline_color),
+            BackgroundColor(Color::srgb(0.42, 0.39, 0.34)),
         ));
-        if always_visible {
-            outline.insert(AlwaysVisible);
-        }
 
-        let mut bg = commands.spawn((
-            VitalPart(kind),
+        commands.spawn((
             HideOnDeath,
+            AlwaysVisible,
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(BAR_LEFT + BORDER),
                 bottom: Val::Px(bottom + BORDER),
-                width: Val::Px(content_width),
-                height: Val::Px(outline_height - 2.0 * BORDER),
+                width: Val::Px(VITAL_BAR_CONTENT_WIDTH),
+                height: Val::Px(ROW_HEIGHT - 2.0 * BORDER),
                 ..default()
             },
             BackgroundColor(bar_bg()),
         ));
-        if always_visible {
-            bg.insert(AlwaysVisible);
-        }
 
-        let mut fill = commands.spawn((
+        commands.spawn((
             VitalFill(kind),
             HideOnDeath,
+            AlwaysVisible,
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(BAR_LEFT + BORDER),
                 bottom: Val::Px(bottom + BORDER),
-                width: Val::Px(content_width),
-                height: Val::Px(outline_height - 2.0 * BORDER),
+                width: Val::Px(VITAL_BAR_CONTENT_WIDTH),
+                height: Val::Px(ROW_HEIGHT - 2.0 * BORDER),
                 ..default()
             },
             BackgroundColor(color),
         ));
-        if always_visible {
-            fill.insert(AlwaysVisible);
-        }
+
+        commands.spawn((
+            VitalValue(kind),
+            HideOnDeath,
+            AlwaysVisible,
+            Text::new("100%"),
+            TextFont { font_size: 15.0, ..default() },
+            TextColor(Color::srgb(0.97, 0.96, 0.92)),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(BAR_LEFT + 118.0),
+                bottom: Val::Px(bottom + 9.0),
+                ..default()
+            },
+        ));
     }
 
-    // warning line, just above the panel — explains any passive health
-    // drain from starving/dehydration instead of leaving it a mystery.
     commands.spawn((
         SurvivalWarning,
         HideOnDeath,
         Text::new(""),
-        TextFont { font_size: 15.0, ..default() },
-        TextColor(Color::srgb(0.88, 0.55, 0.30)),
+        TextFont { font_size: 18.0, ..default() },
+        TextColor(Color::srgb(0.96, 0.58, 0.32)),
         Node {
             display: Display::None,
             position_type: PositionType::Absolute,
-            left: Val::Px(PANEL_LEFT + 2.0),
-            bottom: Val::Px(PANEL_BOTTOM + PANEL_HEIGHT + 6.0),
+            left: Val::Px(PANEL_LEFT + 4.0),
+            bottom: Val::Px(PANEL_BOTTOM + PANEL_HEIGHT + 8.0),
+            padding: UiRect::all(Val::Px(7.0)),
             ..default()
         },
+        BackgroundColor(Color::srgba(0.08, 0.03, 0.02, 0.86)),
     ));
 }
 
+fn inventory_panel_dimensions() -> (f32, f32) {
+    let rows = (INVENTORY_SLOTS + INVENTORY_COLS - 1) / INVENTORY_COLS;
+    let width = INVENTORY_COLS as f32 * INVENTORY_SLOT
+        + (INVENTORY_COLS as f32 - 1.0) * INVENTORY_GAP
+        + 20.0;
+    let height = rows as f32 * INVENTORY_SLOT
+        + (rows as f32 - 1.0) * INVENTORY_GAP
+        + 52.0;
+    (width, height)
+}
+
 fn spawn_inventory_panel(commands: &mut Commands, asset_server: &AssetServer) {
-    const ROWS: usize = (INVENTORY_SLOTS + INVENTORY_COLS - 1) / INVENTORY_COLS;
-    const PANEL_W: f32 = INVENTORY_COLS as f32 * INVENTORY_SLOT + (INVENTORY_COLS as f32 - 1.0) * INVENTORY_GAP + 16.0;
-    const PANEL_H: f32 = ROWS as f32 * INVENTORY_SLOT + (ROWS as f32 - 1.0) * INVENTORY_GAP + 16.0;
+    let (panel_w, panel_h) = inventory_panel_dimensions();
 
     commands.spawn((
         HideOnDeath,
         AlwaysVisible,
         Node {
             position_type: PositionType::Absolute,
-            right: Val::Px(14.0),
-            bottom: Val::Px(14.0),
-            width: Val::Px(PANEL_W),
-            height: Val::Px(PANEL_H),
+            right: Val::Px(18.0),
+            bottom: Val::Px(18.0),
+            width: Val::Px(panel_w),
+            height: Val::Px(panel_h),
             ..default()
         },
         BackgroundColor(panel_bg()),
     ));
 
+    commands.spawn((
+        InventoryHeader,
+        HideOnDeath,
+        AlwaysVisible,
+        Text::new("INVENTORY"),
+        TextFont { font_size: 16.0, ..default() },
+        TextColor(Color::srgb(0.90, 0.87, 0.78)),
+        Node {
+            position_type: PositionType::Absolute,
+            right: Val::Px(28.0),
+            bottom: Val::Px(18.0 + panel_h - 33.0),
+            ..default()
+        },
+    ));
+
     for i in 0..INVENTORY_SLOTS {
         let col = i % INVENTORY_COLS;
         let row = i / INVENTORY_COLS;
-        let right = 14.0 + 8.0 + col as f32 * (INVENTORY_SLOT + INVENTORY_GAP);
-        let bottom = 14.0 + 8.0 + row as f32 * (INVENTORY_SLOT + INVENTORY_GAP);
+        let right = 18.0 + 10.0 + col as f32 * (INVENTORY_SLOT + INVENTORY_GAP);
+        let bottom = 18.0 + 10.0 + row as f32 * (INVENTORY_SLOT + INVENTORY_GAP);
 
-        // slot background — always shown, empty or not, Minecraft-style,
-        // so the inventory reads as a fixed grid instead of things
-        // popping in and out of nowhere.
         commands.spawn((
             HideOnDeath,
             AlwaysVisible,
@@ -360,10 +376,10 @@ fn spawn_inventory_panel(commands: &mut Commands, asset_server: &AssetServer) {
             Node {
                 display: Display::None,
                 position_type: PositionType::Absolute,
-                right: Val::Px(right + 5.0),
-                bottom: Val::Px(bottom + 5.0),
-                width: Val::Px(INVENTORY_SLOT - 10.0),
-                height: Val::Px(INVENTORY_SLOT - 10.0),
+                right: Val::Px(right + 6.0),
+                bottom: Val::Px(bottom + 6.0),
+                width: Val::Px(INVENTORY_SLOT - 12.0),
+                height: Val::Px(INVENTORY_SLOT - 12.0),
                 ..default()
             },
         ));
@@ -372,12 +388,12 @@ fn spawn_inventory_panel(commands: &mut Commands, asset_server: &AssetServer) {
             InventoryQty(i),
             HideOnDeath,
             Text::new(""),
-            TextFont { font_size: 14.0, ..default() },
-            TextColor(Color::srgb(0.95, 0.93, 0.88)),
+            TextFont { font_size: 17.0, ..default() },
+            TextColor(Color::srgb(0.98, 0.96, 0.90)),
             Node {
                 display: Display::None,
                 position_type: PositionType::Absolute,
-                right: Val::Px(right + 2.0),
+                right: Val::Px(right + 3.0),
                 bottom: Val::Px(bottom + 2.0),
                 ..default()
             },
@@ -385,61 +401,72 @@ fn spawn_inventory_panel(commands: &mut Commands, asset_server: &AssetServer) {
     }
 }
 
-/// static reference panel above the inventory — "what crafts what and
-/// why" was invisible before; this lists every known recipe so there's
-/// a reason to go collect scrap/cloth/metal/battery.
 fn spawn_recipe_panel(commands: &mut Commands) {
-    const ROWS: usize = (INVENTORY_SLOTS + INVENTORY_COLS - 1) / INVENTORY_COLS;
-    const INVENTORY_PANEL_H: f32 =
-        ROWS as f32 * INVENTORY_SLOT + (ROWS as f32 - 1.0) * INVENTORY_GAP + 16.0;
-    let bottom = 14.0 + INVENTORY_PANEL_H + 10.0;
+    let (_, inventory_h) = inventory_panel_dimensions();
     let recipes = recipe_descriptions();
-    let height = 34.0 + recipes.len() as f32 * 18.0;
+    let height = 52.0 + recipes.len() as f32 * 42.0;
 
+    commands
+        .spawn((
+            HideOnDeath,
+            AlwaysVisible,
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::Px(18.0),
+                bottom: Val::Px(18.0 + inventory_h + 12.0),
+                width: Val::Px(430.0),
+                height: Val::Px(height),
+                padding: UiRect::all(Val::Px(12.0)),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(8.0),
+                ..default()
+            },
+            BackgroundColor(panel_bg()),
+        ))
+        .with_children(|panel| {
+            panel.spawn((
+                Text::new("CRAFTING  •  C crafts the first affordable recipe"),
+                TextFont { font_size: 16.0, ..default() },
+                TextColor(Color::srgb(0.91, 0.84, 0.63)),
+            ));
+            for recipe in recipes {
+                panel.spawn((
+                    Text::new(recipe),
+                    TextFont { font_size: 15.0, ..default() },
+                    TextColor(Color::srgb(0.80, 0.77, 0.69)),
+                ));
+            }
+        });
+}
+
+fn spawn_objective_and_depth(commands: &mut Commands) {
     commands.spawn((
         HideOnDeath,
         AlwaysVisible,
+        Text::new("OBJECTIVE  •  descend to the bottom and recover the cargo"),
+        TextFont { font_size: 19.0, ..default() },
+        TextColor(Color::srgb(0.96, 0.88, 0.60)),
         Node {
             position_type: PositionType::Absolute,
-            right: Val::Px(14.0),
-            bottom: Val::Px(bottom),
-            width: Val::Px(280.0),
-            height: Val::Px(height),
-            padding: UiRect::all(Val::Px(10.0)),
-            flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(2.0),
+            top: Val::Px(18.0),
+            left: Val::Px(20.0),
+            padding: UiRect::all(Val::Px(8.0)),
             ..default()
         },
-        BackgroundColor(panel_bg()),
-    ))
-    .with_children(|panel| {
-        panel.spawn((
-            Text::new("CRAFTING (press C)"),
-            TextFont { font_size: 14.0, ..default() },
-            TextColor(Color::srgb(0.85, 0.82, 0.72)),
-        ));
-        for recipe in recipes {
-            panel.spawn((
-                Text::new(recipe),
-                TextFont { font_size: 13.0, ..default() },
-                TextColor(Color::srgb(0.72, 0.69, 0.62)),
-            ));
-        }
-    });
-}
+        BackgroundColor(Color::srgba(0.05, 0.045, 0.03, 0.78)),
+    ));
 
-fn spawn_depth_label(commands: &mut Commands) {
     commands.spawn((
         DepthLabel,
         HideOnDeath,
         AlwaysVisible,
         Text::new("LAYER 0"),
-        TextFont { font_size: 20.0, ..default() },
-        TextColor(Color::srgba(0.82, 0.78, 0.70, 0.9)),
+        TextFont { font_size: 24.0, ..default() },
+        TextColor(Color::srgba(0.88, 0.83, 0.72, 0.95)),
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Px(16.0),
-            right: Val::Px(20.0),
+            top: Val::Px(20.0),
+            right: Val::Px(24.0),
             ..default()
         },
     ));
@@ -449,27 +476,28 @@ fn spawn_toasts(commands: &mut Commands) {
     commands
         .spawn((
             SpawnHintPanel,
+            HideOnDeath,
             Node {
                 position_type: PositionType::Absolute,
-                top: Val::Px(20.0),
+                top: Val::Px(66.0),
                 left: Val::Px(0.0),
                 width: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                row_gap: Val::Px(4.0),
+                row_gap: Val::Px(5.0),
                 ..default()
             },
         ))
         .with_children(|panel| {
             panel.spawn((
-                Text::new("OBJECTIVE: descend, survive, and recover the cargo at the bottom of the cave"),
-                TextFont { font_size: 17.0, ..default() },
-                TextColor(Color::srgba(0.95, 0.88, 0.60, 0.95)),
+                Text::new("Explore downward, collect supplies, treat injuries, recover the cargo."),
+                TextFont { font_size: 18.0, ..default() },
+                TextColor(Color::srgba(0.95, 0.92, 0.82, 0.98)),
             ));
             panel.spawn((
-                Text::new("WASD/arrows move   Space jump   E attack   F use supplies   C craft   R restart run"),
-                TextFont { font_size: 15.0, ..default() },
-                TextColor(Color::srgba(0.92, 0.90, 0.82, 0.95)),
+                Text::new("A/D or arrows: move   Space: jump   E: attack   F: use best supply   C: craft   R: restart"),
+                TextFont { font_size: 16.0, ..default() },
+                TextColor(Color::srgba(0.88, 0.86, 0.80, 0.95)),
             ));
         });
 
@@ -479,7 +507,7 @@ fn spawn_toasts(commands: &mut Commands) {
             Node {
                 display: Display::None,
                 position_type: PositionType::Absolute,
-                top: Val::Px(74.0),
+                top: Val::Px(118.0),
                 left: Val::Px(0.0),
                 width: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
@@ -491,8 +519,8 @@ fn spawn_toasts(commands: &mut Commands) {
             panel.spawn((
                 DepthToastText,
                 Text::new(""),
-                TextFont { font_size: 20.0, ..default() },
-                TextColor(Color::srgba(0.85, 0.82, 0.70, 0.95)),
+                TextFont { font_size: 25.0, ..default() },
+                TextColor(Color::srgba(0.88, 0.84, 0.72, 0.98)),
             ));
         });
 
@@ -503,7 +531,7 @@ fn spawn_toasts(commands: &mut Commands) {
             Node {
                 display: Display::None,
                 position_type: PositionType::Absolute,
-                bottom: Val::Px(180.0),
+                bottom: Val::Px(238.0),
                 left: Val::Px(0.0),
                 width: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
@@ -515,8 +543,8 @@ fn spawn_toasts(commands: &mut Commands) {
             panel.spawn((
                 EventToastText,
                 Text::new(""),
-                TextFont { font_size: 16.0, ..default() },
-                TextColor(Color::srgba(0.88, 0.85, 0.78, 0.95)),
+                TextFont { font_size: 19.0, ..default() },
+                TextColor(Color::srgba(0.95, 0.92, 0.84, 0.98)),
             ));
         });
 }
@@ -535,22 +563,22 @@ fn spawn_death_overlay(commands: &mut Commands) {
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
-                row_gap: Val::Px(12.0),
+                row_gap: Val::Px(15.0),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.02, 0.01, 0.01, 0.96)),
+            BackgroundColor(Color::srgba(0.02, 0.01, 0.01, 0.97)),
         ))
         .with_children(|overlay| {
             overlay.spawn((
                 Text::new("YOU DIED"),
-                TextFont { font_size: 52.0, ..default() },
-                TextColor(Color::srgb(0.72, 0.18, 0.18)),
+                TextFont { font_size: 62.0, ..default() },
+                TextColor(Color::srgb(0.78, 0.20, 0.18)),
             ));
             overlay.spawn((
                 DeathOverlayText,
                 Text::new(""),
-                TextFont { font_size: 17.0, ..default() },
-                TextColor(Color::srgb(0.80, 0.77, 0.72)),
+                TextFont { font_size: 20.0, ..default() },
+                TextColor(Color::srgb(0.84, 0.81, 0.75)),
             ));
         });
 }
@@ -569,28 +597,26 @@ fn spawn_win_overlay(commands: &mut Commands) {
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
-                row_gap: Val::Px(12.0),
+                row_gap: Val::Px(15.0),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.02, 0.03, 0.01, 0.96)),
+            BackgroundColor(Color::srgba(0.02, 0.03, 0.01, 0.97)),
         ))
         .with_children(|overlay| {
             overlay.spawn((
                 Text::new("CARGO RECOVERED"),
-                TextFont { font_size: 46.0, ..default() },
-                TextColor(Color::srgb(0.50, 0.74, 0.36)),
+                TextFont { font_size: 54.0, ..default() },
+                TextColor(Color::srgb(0.50, 0.78, 0.37)),
             ));
             overlay.spawn((
                 WinOverlayText,
                 Text::new(""),
-                TextFont { font_size: 17.0, ..default() },
-                TextColor(Color::srgb(0.80, 0.77, 0.72)),
+                TextFont { font_size: 20.0, ..default() },
+                TextColor(Color::srgb(0.84, 0.81, 0.75)),
             ));
         });
 }
 
-/// runs first: force-shows everything tagged AlwaysVisible every frame.
-/// see the AlwaysVisible doc comment for why this exists.
 fn reset_always_visible(mut query: Query<&mut Node, With<AlwaysVisible>>) {
     for mut node in &mut query {
         node.display = Display::Flex;
@@ -605,7 +631,10 @@ fn toggle_debug(keyboard: Res<ButtonInput<KeyCode>>, mut visible: ResMut<DebugVi
 
 fn capture_landings(mut events: MessageReader<LandingImpact>, mut last: ResMut<LastLanding>) {
     for impact in events.read() {
-        last.text = format!("hard landing  {:.0} u/s  severity {:.2}", impact.downward_speed, impact.severity);
+        last.text = format!(
+            "hard landing  {:.0} u/s  severity {:.2}",
+            impact.downward_speed, impact.severity
+        );
     }
 }
 
@@ -631,7 +660,13 @@ fn update_debug_text(
     let items = if inventory.0.stacks().is_empty() {
         "empty".to_string()
     } else {
-        inventory.0.stacks().iter().map(|s| format!("{} {}", s.quantity, s.kind.label())).collect::<Vec<_>>().join(", ")
+        inventory
+            .0
+            .stacks()
+            .iter()
+            .map(|s| format!("{} {}", s.quantity, s.kind.label()))
+            .collect::<Vec<_>>()
+            .join(", ")
     };
     **text = format!(
         "[debug — F3 to hide]\n\
@@ -652,80 +687,76 @@ fn update_debug_text(
     );
 }
 
-fn update_vital_bars(player: Query<(&Body, &Survival), With<Player>>, mut fills: Query<(&VitalFill, &mut Node)>) {
+fn vital_fraction(kind: VitalKind, body: &Body, survival: &Survival) -> f32 {
+    match kind {
+        VitalKind::Health => body.0.blood_volume(),
+        VitalKind::Hunger => survival.0.hunger(),
+        VitalKind::Thirst => survival.0.thirst(),
+        VitalKind::Stamina => survival.0.stamina(),
+    }
+}
+
+fn update_vital_bars(
+    player: Query<(&Body, &Survival), With<Player>>,
+    mut fills: Query<(&VitalFill, &mut Node)>,
+) {
     let Ok((body, survival)) = player.single() else {
         return;
     };
     for (fill, mut node) in &mut fills {
-        let fraction = match fill.0 {
-            VitalKind::Health => body.0.blood_volume(),
-            VitalKind::Hunger => survival.0.hunger(),
-            VitalKind::Thirst => survival.0.thirst(),
-            VitalKind::Stamina => survival.0.stamina(),
-        };
+        let fraction = vital_fraction(fill.0, body, survival);
         node.width = Val::Px(VITAL_BAR_CONTENT_WIDTH * fraction.clamp(0.0, 1.0));
     }
 }
 
-/// stamina's icon/bg/fill only show up while the player is actually
-/// moving — otherwise it's clutter for a meter that's almost always full.
-fn update_stamina_visibility(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut parts: Query<(&VitalPart, &mut Node), Without<VitalFill>>,
-    mut fills: Query<(&VitalFill, &mut Node), Without<VitalPart>>,
+fn update_vital_values(
+    player: Query<(&Body, &Survival), With<Player>>,
+    mut values: Query<(&VitalValue, &mut Text)>,
 ) {
-    let moving = keyboard.pressed(KeyCode::KeyA)
-        || keyboard.pressed(KeyCode::KeyD)
-        || keyboard.pressed(KeyCode::ArrowLeft)
-        || keyboard.pressed(KeyCode::ArrowRight);
-    let display = if moving { Display::Flex } else { Display::None };
-    for (part, mut node) in &mut parts {
-        if part.0 == VitalKind::Stamina {
-            node.display = display;
-        }
-    }
-    for (fill, mut node) in &mut fills {
-        if fill.0 == VitalKind::Stamina {
-            node.display = display;
-        }
+    let Ok((body, survival)) = player.single() else {
+        return;
+    };
+    for (value, mut text) in &mut values {
+        **text = format!("{:.0}%", vital_fraction(value.0, body, survival) * 100.0);
     }
 }
 
-/// explains WHY blood volume might be draining with no wounds in sight —
-/// reported as "health decreasing for no reason". starving/dehydrated
-/// (meters at exactly empty) actually drain blood; below 40% is just an
-/// early warning that it's heading that way.
+/// Keep the warning line causal. Health only falls because of bleeding now;
+/// hunger/thirst warn about exhaustion rather than pretending to be damage.
 fn update_survival_warning(
-    player: Query<&Survival, With<Player>>,
+    player: Query<(&Body, &Survival), With<Player>>,
     mut warning: Query<(&mut Node, &mut Text), With<SurvivalWarning>>,
 ) {
-    let Ok(survival) = player.single() else {
+    let Ok((body, survival)) = player.single() else {
         return;
     };
     let Ok((mut node, mut text)) = warning.single_mut() else {
         return;
     };
-    let starving = survival.0.is_starving();
-    let dehydrated = survival.0.is_dehydrated();
-    let message = if starving && dehydrated {
-        Some("STARVING & DEHYDRATED — losing blood until you eat and drink".to_string())
-    } else if starving {
-        Some("STARVING — losing blood until you eat (F)".to_string())
-    } else if dehydrated {
-        Some("DEHYDRATED — losing blood until you drink (F)".to_string())
-    } else if survival.0.hunger() < 0.4 && survival.0.thirst() < 0.4 {
-        Some("getting hungry and thirsty".to_string())
-    } else if survival.0.hunger() < 0.4 {
-        Some("getting hungry".to_string())
-    } else if survival.0.thirst() < 0.4 {
-        Some("getting thirsty".to_string())
+
+    let message = if body.0.total_bleed_rate() > 0.0 {
+        Some(format!(
+            "BLEEDING — health is falling ({:.2}/s). Use a bandage with F.",
+            body.0.total_bleed_rate()
+        ))
+    } else if body.0.has_untreated_leg_fracture() {
+        Some("FRACTURE — movement is limited. Carry a splint and press F.".to_string())
+    } else if survival.0.is_starving() && survival.0.is_dehydrated() {
+        Some("STARVING & DEHYDRATED — stamina recovery is heavily reduced.".to_string())
+    } else if survival.0.is_starving() {
+        Some("STARVING — stamina recovery is reduced. Find food.".to_string())
+    } else if survival.0.is_dehydrated() {
+        Some("DEHYDRATED — stamina recovery is reduced. Find water.".to_string())
+    } else if survival.0.hunger() < 0.3 || survival.0.thirst() < 0.3 {
+        Some("LOW SUPPLIES — hunger/thirst are starting to hurt stamina recovery.".to_string())
     } else {
         None
     };
+
     match message {
-        Some(text_value) => {
+        Some(value) => {
             node.display = Display::Flex;
-            **text = text_value;
+            **text = value;
         }
         None => node.display = Display::None,
     }
@@ -759,6 +790,23 @@ fn update_inventory_panel(
     }
 }
 
+fn update_inventory_header(
+    player: Query<&PlayerInventory, With<Player>>,
+    mut header: Query<&mut Text, With<InventoryHeader>>,
+) {
+    let Ok(inventory) = player.single() else {
+        return;
+    };
+    let Ok(mut text) = header.single_mut() else {
+        return;
+    };
+    **text = format!(
+        "INVENTORY  •  {}/{} weight",
+        inventory.0.used_weight(),
+        inventory.0.capacity()
+    );
+}
+
 fn update_depth_label(depth: Res<CurrentDepth>, mut label: Query<&mut Text, With<DepthLabel>>) {
     let Ok(mut text) = label.single_mut() else {
         return;
@@ -770,7 +818,11 @@ fn update_spawn_hint_toast(hint: Res<SpawnHint>, mut panel: Query<&mut Node, Wit
     let Ok(mut node) = panel.single_mut() else {
         return;
     };
-    node.display = if hint.0 > 0.0 { Display::Flex } else { Display::None };
+    node.display = if hint.0 > 0.0 {
+        Display::Flex
+    } else {
+        Display::None
+    };
 }
 
 fn update_depth_toast(
@@ -825,8 +877,14 @@ fn update_death_overlay(
         overlay_node.display = Display::Flex;
         if let Ok(mut text) = overlay_text.single_mut() {
             **text = format!(
-                "deepest layer reached: {}\nsurvived: {:.0}s\n\npress R to restart",
-                stats.deepest_layer, stats.elapsed_secs
+                "cause: critical blood loss from untreated injuries\n\
+                 wounds at death: {}\n\
+                 deepest layer reached: {}\n\
+                 survived: {:.0}s\n\n\
+                 press R to restart with a new cave",
+                body.0.wound_count(),
+                stats.deepest_layer,
+                stats.elapsed_secs
             );
         }
     } else {
@@ -846,7 +904,10 @@ fn update_win_overlay(
         overlay_node.display = Display::Flex;
         if let Ok(mut text) = overlay_text.single_mut() {
             **text = format!(
-                "deepest layer reached: {}\nsurvived: {:.0}s\n\npress R to run again",
+                "primary objective complete\n\
+                 deepest layer reached: {}\n\
+                 survived: {:.0}s\n\n\
+                 press R to begin a new run",
                 stats.deepest_layer, stats.elapsed_secs
             );
         }
@@ -855,10 +916,9 @@ fn update_win_overlay(
     }
 }
 
-/// runs last: while dead or extracted, forces every normal-gameplay HUD
-/// element (and the debug panel, regardless of its own F3 state) off,
-/// so nothing shows through the death/win overlay even at its (slightly
-/// less than opaque) background alpha.
+/// Runs last so overlays cannot have normal HUD elements drawn through them.
+/// reset_always_visible runs first next frame, which guarantees that R reset
+/// restores the HUD instead of leaving it permanently hidden.
 fn enforce_death_hide(
     player: Query<&Body, With<Player>>,
     stats: Res<RunStats>,
