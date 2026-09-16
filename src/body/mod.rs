@@ -1,7 +1,6 @@
-//! Body simulation. Milestone 2 per docs/REBUILD_PLAN.md: wounds feed a
-//! cardiovascular model (currently just blood volume) that determines
-//! consciousness and death. Infection and treatment are not implemented
-//! yet; see the module docs on `state` for what `BodyState` tracks.
+//! Body simulation. Wounds feed a cardiovascular model that determines
+//! consciousness and death; the integration layer also remembers the most
+//! recent damage source so UI/audio can explain death without guessing.
 
 mod cardio;
 mod integration;
@@ -10,7 +9,7 @@ mod state;
 mod wound;
 
 pub use cardio::{Cardio, DEATH_THRESHOLD, KO_THRESHOLD};
-pub use integration::{Body, BodyPlugin};
+pub use integration::{Body, BodyPlugin, DamageCause, LastDamageCause};
 pub use region::BodyRegion;
 pub use state::BodyState;
 pub use wound::{landing_wound, Wound, WoundKind, FRACTURE_SEVERITY, LACERATION_SEVERITY};
