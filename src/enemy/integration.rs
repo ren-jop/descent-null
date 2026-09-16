@@ -1,6 +1,6 @@
 //! Bevy wiring for two readable cave enemies: the slower crawler and the
-//! faster skitter. Both use the same small state machine so difficulty rises
-//! without turning enemy code into a separate framework.
+//! faster silverfish/skitter. Both use the same small state machine so
+//! difficulty rises without turning enemy code into a separate framework.
 
 use avian2d::prelude::*;
 use bevy::prelude::*;
@@ -14,6 +14,9 @@ use super::state::{state_for_distance, EnemyState, EnemyStats};
 
 const PLAYER_ATTACK_DAMAGE: f32 = 5.0;
 const MELEE_RANGE: f32 = 46.0;
+const POISON_SECONDS: f32 = 6.0;
+const POISON_TICK_INTERVAL: f32 = 1.0;
+const POISON_DAMAGE_PER_TICK: f32 = 0.025;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnemyKind {
@@ -60,8 +63,26 @@ impl EnemyKind {
     fn label(self) -> &'static str {
         match self {
             Self::Crawler => "CRAWLER",
-            Self::Skitter => "SKITTER",
+            Self::Skitter => "SILVERFISH",
         }
+    }
+}
+
+#[derive(Resource, Default)]
+struct PoisonState {
+    remaining: f32,
+    until_tick: f32,
+}
+
+impl PoisonState {
+    fn apply(&mut self) {
+        self.remaining = POISON_SECONDS;
+        self.until_tick = POISON_TICK_INTERVAL;
+    }
+
+    fn clear(&mut self) {
+        self.remaining = 0.0;
+        self.until_tick = 0.0;
     }
 }
 
@@ -76,12 +97,13 @@ pub struct EnemyPlugin;
 
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (enemy_ai, player_attack));
+        app.init_resource::<PoisonState>()
+            .add_systems(Update, (enemy_ai, tick_poison, player_attack).chain());
     }
 }
 
 /// Existing world generation calls this generic spawner. Shallow layers stay
-/// crawler-heavy, while deeper spawns have a chance to become a Skitter.
+/// crawler-heavy, while deeper spawns have a chance to become a Silverfish.
 pub fn spawn_enemy(commands: &mut Commands, asset_server: &AssetServer, pos: Vec2) -> Entity {
     let mut rng = rand::thread_rng();
     let kind = if pos.y < -1200.0 && rng.gen_bool(0.38) {
@@ -137,6 +159,7 @@ fn enemy_ai(
     player: Query<&Transform, (With<Player>, Without<Enemy>)>,
     mut enemies: Query<(&Transform, &mut LinearVelocity, &mut Enemy), Without<Player>>,
     mut player_body: Query<&mut Body, With<Player>>,
+    mut poison: ResMut<PoisonState>,
     mut last: ResMut<LastEvent>,
     mut cause: ResMut<LastDamageCause>,
 ) {
@@ -169,10 +192,55 @@ fn enemy_ai(
                         body.0.apply_wound(wound);
                     }
                     cause.0 = DamageCause::Enemy;
-                    last.show(format!("ATTACK: {}", enemy.kind.label()));
+                    if enemy.kind == EnemyKind::Skitter {
+                        poison.apply();
+                        last.show("SILVERFISH BITE  POISONED - HEALTH WILL TICK");
+                    } else {
+                        last.show(format!("ATTACK: {}", enemy.kind.label()));
+                    }
                 }
             }
         }
+    }
+}
+
+fn tick_poison(
+    time: Res<Time>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut poison: ResMut<PoisonState>,
+    mut player_body: Query<&mut Body, With<Player>>,
+    mut cause: ResMut<LastDamageCause>,
+    mut last: ResMut<LastEvent>,
+) {
+    if keyboard.just_pressed(KeyCode::KeyR) {
+        poison.clear();
+        return;
+    }
+    if poison.remaining <= 0.0 {
+        return;
+    }
+
+    let dt = time.delta_secs();
+    poison.remaining = (poison.remaining - dt).max(0.0);
+    poison.until_tick -= dt;
+
+    if poison.until_tick <= 0.0 {
+        poison.until_tick += POISON_TICK_INTERVAL;
+        if let Ok(mut body) = player_body.single_mut() {
+            body.0.apply_external_drain(POISON_DAMAGE_PER_TICK);
+            cause.0 = DamageCause::Enemy;
+        }
+
+        // The initial poison warning stays visible for most of the effect.
+        // Near the end, surface one explicit tick so the player connects the
+        // stepped health loss with poison rather than assuming the HUD bugged.
+        if poison.remaining <= 2.1 && last.remaining <= 0.20 {
+            last.show("POISON TICK  HEALTH -2.5%");
+        }
+    }
+
+    if poison.remaining <= 0.0 && last.remaining <= 0.20 {
+        last.show("POISON CLEARED");
     }
 }
 
