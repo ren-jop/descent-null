@@ -37,6 +37,20 @@ impl ItemKind {
             ItemKind::Medkit => 2,
         }
     }
+
+    pub fn sprite_path(self) -> &'static str {
+        match self {
+            ItemKind::Scrap => "sprites/item_scrap.png",
+            ItemKind::Cloth => "sprites/item_cloth.png",
+            ItemKind::Metal => "sprites/item_metal.png",
+            ItemKind::Food => "sprites/item_food.png",
+            ItemKind::Water => "sprites/item_water.png",
+            ItemKind::Battery => "sprites/item_battery.png",
+            ItemKind::Bandage => "sprites/item_bandage.png",
+            ItemKind::Splint => "sprites/item_splint.png",
+            ItemKind::Medkit => "sprites/item_medkit.png",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

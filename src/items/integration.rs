@@ -15,6 +15,7 @@ use super::item::{ItemKind, ItemStack};
 // everything" tradeoff, so this is deliberately tight, not generous.
 const DEFAULT_CAPACITY: u32 = 12;
 const PICKUP_RADIUS: f32 = 36.0;
+const EVENT_DISPLAY_SECONDS: f32 = 3.0;
 
 impl Default for Inventory {
     fn default() -> Self {
@@ -28,17 +29,33 @@ pub struct PlayerInventory(pub Inventory);
 #[derive(Component)]
 pub struct Pickup(pub ItemStack);
 
+/// a brief contextual notification — pickups, item use, crafting, combat.
+/// shown as a fading toast, not a permanent HUD line (see ui::update_event_toast).
 #[derive(Resource, Default)]
-pub struct LastPickup {
+pub struct LastEvent {
     pub text: String,
+    pub remaining: f32,
+}
+
+impl LastEvent {
+    pub fn show(&mut self, text: impl Into<String>) {
+        self.text = text.into();
+        self.remaining = EVENT_DISPLAY_SECONDS;
+    }
 }
 
 pub struct ItemsPlugin;
 
 impl Plugin for ItemsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<LastPickup>()
-            .add_systems(Update, (collect_pickups, use_supplies, craft_item));
+        app.init_resource::<LastEvent>()
+            .add_systems(Update, (collect_pickups, use_supplies, craft_item, tick_last_event));
+    }
+}
+
+fn tick_last_event(time: Res<Time>, mut last: ResMut<LastEvent>) {
+    if last.remaining > 0.0 {
+        last.remaining = (last.remaining - time.delta_secs()).max(0.0);
     }
 }
 
@@ -47,7 +64,7 @@ fn collect_pickups(
     player: Query<&Transform, With<Player>>,
     pickups: Query<(Entity, &Transform, &Pickup)>,
     mut inventory: Query<&mut PlayerInventory>,
-    mut last: ResMut<LastPickup>,
+    mut last: ResMut<LastEvent>,
 ) {
     let Ok(player_transform) = player.single() else {
         return;
@@ -61,10 +78,10 @@ fn collect_pickups(
             continue;
         }
         if inventory.0.add(pickup.0) {
-            last.text = format!("picked up {} {}", pickup.0.quantity, pickup.0.kind.label());
+            last.show(format!("picked up {} {}", pickup.0.quantity, pickup.0.kind.label()));
             commands.entity(entity).despawn();
         } else {
-            last.text = format!("inventory full — can't carry {}", pickup.0.kind.label());
+            last.show(format!("inventory full — can't carry {}", pickup.0.kind.label()));
         }
     }
 }
@@ -75,7 +92,7 @@ fn collect_pickups(
 fn use_supplies(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut query: Query<(&mut PlayerInventory, &mut Body, &mut Survival)>,
-    mut last: ResMut<LastPickup>,
+    mut last: ResMut<LastEvent>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyF) {
         return;
@@ -85,24 +102,24 @@ fn use_supplies(
     };
     if survival.0.hunger() < 0.5 && inventory.0.remove(ItemKind::Food, 1) > 0 {
         survival.0.eat(0.4);
-        last.text = "ate food".to_string();
+        last.show("ate food");
     } else if survival.0.thirst() < 0.5 && inventory.0.remove(ItemKind::Water, 1) > 0 {
         survival.0.drink(0.4);
-        last.text = "drank water".to_string();
+        last.show("drank water");
     } else if body.0.total_bleed_rate() > 0.0 && inventory.0.remove(ItemKind::Bandage, 1) > 0 {
         body.0.treat_worst_bleeding();
-        last.text = "used bandage".to_string();
+        last.show("used bandage");
     } else if body.0.has_untreated_leg_fracture() && inventory.0.remove(ItemKind::Splint, 1) > 0 {
         body.0.treat_fracture();
-        last.text = "used splint".to_string();
+        last.show("used splint");
     } else if (body.0.blood_volume() < 0.9 || body.0.wound_count() > 0)
         && inventory.0.remove(ItemKind::Medkit, 1) > 0
     {
         body.0.heal_blood_volume(0.35);
         body.0.treat_pain();
-        last.text = "used medkit".to_string();
+        last.show("used medkit");
     } else {
-        last.text = "nothing useful to use right now".to_string();
+        last.show("nothing useful to use right now");
     }
 }
 
@@ -110,7 +127,7 @@ fn use_supplies(
 fn craft_item(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut query: Query<&mut PlayerInventory>,
-    mut last: ResMut<LastPickup>,
+    mut last: ResMut<LastEvent>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyC) {
         return;
@@ -119,7 +136,7 @@ fn craft_item(
         return;
     };
     match craft::try_craft(&mut inventory.0) {
-        Some(kind) => last.text = format!("crafted {}", kind.label()),
-        None => last.text = "not enough materials to craft anything".to_string(),
+        Some(kind) => last.show(format!("crafted {}", kind.label())),
+        None => last.show("not enough materials to craft anything"),
     }
 }

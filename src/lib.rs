@@ -4,6 +4,7 @@
 //! all in. Phase 2 (crafting, hazards, enemies, light) is next.
 
 pub mod body;
+pub mod enemy;
 pub mod game;
 pub mod items;
 pub mod physics;

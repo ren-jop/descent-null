@@ -5,6 +5,7 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 
 use crate::body::BodyPlugin;
+use crate::enemy::EnemyPlugin;
 use crate::items::ItemsPlugin;
 use crate::physics::PhysicsGameplayPlugin;
 use crate::player::PlayerPlugin;
@@ -31,11 +32,20 @@ impl Plugin for GamePlugin {
             BodyPlugin,
             SurvivalPlugin,
             ItemsPlugin,
+            EnemyPlugin,
             PlayerPlugin,
             CavePlugin,
             HudPlugin,
         ))
         .insert_resource(ClearColor(Color::srgb(0.06, 0.05, 0.05)))
-        .insert_resource(Gravity(avian2d::math::Vector::NEG_Y * 1000.0));
+        .insert_resource(Gravity(avian2d::math::Vector::NEG_Y * 1000.0))
+        .add_systems(Startup, spawn_ambience);
     }
+}
+
+// original ambient drone (assets/audio/ambience.wav, generated for this
+// project), looped for atmosphere. quiet on purpose — this is a dark,
+// minimal game, not a soundtrack showcase.
+fn spawn_ambience(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn((AudioPlayer::new(asset_server.load("audio/ambience.wav")), PlaybackSettings::LOOP));
 }

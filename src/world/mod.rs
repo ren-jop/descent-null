@@ -2,4 +2,4 @@
 
 mod cave;
 
-pub use cave::{CavePlugin, CurrentDepth, RunStats};
+pub use cave::{CavePlugin, CurrentDepth, DepthAnnouncement, RunStats};

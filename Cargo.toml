@@ -16,6 +16,7 @@ path = "src/main.rs"
 bevy = { version = "0.17", default-features = false, features = [
     "std",
     "bevy_asset",
+    "bevy_audio",
     "bevy_color",
     "bevy_core_pipeline",
     "bevy_log",
@@ -32,6 +33,7 @@ bevy = { version = "0.17", default-features = false, features = [
     "default_font",
     "multi_threaded",
     "png",
+    "wav",
 ] }
 avian2d = "0.4"
 rand = "0.8"

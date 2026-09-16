@@ -8,6 +8,6 @@ mod inventory;
 mod item;
 
 pub use craft::try_craft;
-pub use integration::{ItemsPlugin, LastPickup, Pickup, PlayerInventory};
+pub use integration::{ItemsPlugin, LastEvent, Pickup, PlayerInventory};
 pub use inventory::Inventory;
 pub use item::{ItemKind, ItemStack};

@@ -25,6 +25,24 @@ const RECIPES: &[Recipe] = &[
     },
 ];
 
+/// human-readable recipe list for the UI (see ui::spawn_recipe_panel) —
+/// "what crafts what and why" was invisible before, this is how the
+/// crafting panel knows what to show without duplicating the recipe data.
+pub fn recipe_descriptions() -> Vec<String> {
+    RECIPES
+        .iter()
+        .map(|recipe| {
+            let inputs = recipe
+                .inputs
+                .iter()
+                .map(|(kind, qty)| format!("{qty} {}", kind.label()))
+                .collect::<Vec<_>>()
+                .join(" + ");
+            format!("{inputs} -> {}", recipe.output.kind.label())
+        })
+        .collect()
+}
+
 /// tries each recipe in order; crafts (consumes inputs, adds output) the
 /// first one the inventory can afford. returns the crafted kind, if any.
 pub fn try_craft(inventory: &mut Inventory) -> Option<ItemKind> {
@@ -66,5 +84,12 @@ mod tests {
         inv.add(ItemStack::new(ItemKind::Scrap, 1));
         inv.add(ItemStack::new(ItemKind::Metal, 2));
         assert_eq!(try_craft(&mut inv), Some(ItemKind::Splint));
+    }
+
+    #[test]
+    fn recipe_descriptions_lists_every_recipe() {
+        let descriptions = recipe_descriptions();
+        assert_eq!(descriptions.len(), RECIPES.len());
+        assert!(descriptions.iter().any(|d| d.contains("bandage")));
     }
 }

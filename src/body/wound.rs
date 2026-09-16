@@ -32,8 +32,15 @@ pub const LACERATION_SEVERITY: f32 = 0.45;
 pub const FRACTURE_SEVERITY: f32 = 0.85;
 
 const PAIN_PER_SEVERITY: f32 = 6.0;
-const LACERATION_BLEED_PER_SEVERITY: f32 = 0.8;
-const FRACTURE_BLEED_PER_SEVERITY: f32 = 1.6;
+// blood_volume is a 0..1 fraction of total blood, drained by
+// bleed_rate * seconds every frame (see BodyState::tick). These are
+// tuned so a single worst-case wound (severity 1.0) takes real time to
+// become dangerous, not a fraction of a second — a laceration alone
+// takes roughly half a minute to become life-threatening if ignored;
+// both legs fracturing at once (the worst realistic case) takes
+// somewhere around 10-15 seconds. That's still urgent, just reactable.
+const LACERATION_BLEED_PER_SEVERITY: f32 = 0.025;
+const FRACTURE_BLEED_PER_SEVERITY: f32 = 0.05;
 
 /// Turns a landing-impact severity (0..=1, see `physics::landing_severity`)
 /// into a wound on the given region. A severity of 0 or below produces no
