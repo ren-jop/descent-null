@@ -5,6 +5,7 @@ on:
     branches:
       - feature/gameplay-clarity-pass
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
