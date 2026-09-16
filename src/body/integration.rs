@@ -11,9 +11,19 @@ use super::wound::landing_wound;
 
 const LANDING_REGIONS: [BodyRegion; 2] = [BodyRegion::LeftLeg, BodyRegion::RightLeg];
 const FRACTURE_SPEED_CAP: f32 = 60.0;
-/// Dropping several cave layers should not be a shortcut to the objective.
-/// Above this impact speed the landing is treated as unsurvivable trauma.
 const CATASTROPHIC_LANDING_SPEED: f32 = 1150.0;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DamageCause {
+    #[default]
+    Unknown,
+    Fall,
+    Trap,
+    Enemy,
+}
+
+#[derive(Resource, Default)]
+pub struct LastDamageCause(pub DamageCause);
 
 #[derive(Component, Default)]
 pub struct Body(pub BodyState);
@@ -22,18 +32,24 @@ pub struct BodyPlugin;
 
 impl Plugin for BodyPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            (apply_landing_wounds, tick_cardio, enforce_unconsciousness, enforce_fracture_limp).chain(),
-        );
+        app.init_resource::<LastDamageCause>()
+            .add_systems(
+                Update,
+                (apply_landing_wounds, tick_cardio, enforce_unconsciousness, enforce_fracture_limp).chain(),
+            );
     }
 }
 
-fn apply_landing_wounds(mut impacts: MessageReader<LandingImpact>, mut bodies: Query<&mut Body>) {
+fn apply_landing_wounds(
+    mut impacts: MessageReader<LandingImpact>,
+    mut bodies: Query<&mut Body>,
+    mut cause: ResMut<LastDamageCause>,
+) {
     for impact in impacts.read() {
         let Ok(mut body) = bodies.get_mut(impact.entity) else {
             continue;
         };
+        cause.0 = DamageCause::Fall;
         if impact.downward_speed >= CATASTROPHIC_LANDING_SPEED {
             body.0.apply_external_drain(1.0);
             continue;
