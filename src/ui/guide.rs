@@ -129,7 +129,7 @@ fn spawn_guide_ui(mut commands: Commands) {
 2 // LOOT + USE\nWalk over supplies to collect them. Press 1-9 to select a hotbar slot, then F to use it. Food restores hunger; water restores thirst; medical gear keeps injuries from becoming fatal.\n\n\
 3 // SURVIVE\nHunger slows you and can eventually damage health. Thirst becomes dangerous faster. If BOTH are low they make each other drain faster and health collapses faster too. Do not wait for 0%.\n\n\
 4 // CRAFT\nPress C to open crafting. Craft bandages, splints and medkits from scavenged materials before you desperately need them.\n\n\
-5 // ENEMIES\nPress E to attack nearby threats. Crawlers pressure you steadily; Skitters are faster and more aggressive deeper down. Avoid getting cornered when already injured or starving.\n\n\
+5 // ENEMIES\nPress E to attack nearby threats. Crawlers pressure you steadily. Silverfish are much faster deeper down, and their bites poison you: poison removes health in visible timed ticks for several seconds.\n\n\
 6 // OBJECTIVE\nDescend through the cave, recover the LOST CARGO, then reach extraction. The mission panel at top-left always shows which half of the objective you are on.\n\n\
 EXPO // RECORDS\nPress L to view the current session top five. A qualifying finish lets you enter your name before the next player starts.\n\n\
 [G] CLOSE WALKTHROUGH"
