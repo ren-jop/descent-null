@@ -1,4 +1,4 @@
-//! Player spawn, camera follow, landing shake and run reset.
+//! Player spawn, camera follow, lightweight character animation and run reset.
 
 use avian2d::prelude::*;
 use bevy::prelude::*;
@@ -21,6 +21,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(
                 Update,
                 (
+                    animate_player_visual,
                     follow_camera,
                     add_shake_on_landing,
                     apply_camera_shake,
@@ -38,6 +39,9 @@ pub struct Player;
 
 #[derive(Component)]
 pub struct FollowCamera;
+
+#[derive(Component)]
+struct PlayerVisual;
 
 #[derive(Component)]
 struct Vignette;
@@ -94,43 +98,59 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
             PlayerInventory::default(),
         ))
         .with_children(|player| {
-            // Simple original explorer silhouette built from crisp shapes so
-            // the character reads clearly at gameplay scale. This replaces
-            // the distorted placeholder PNG until a full animated sprite
-            // sheet is authored.
-            player.spawn((
-                Sprite::from_color(Color::srgb(0.19, 0.22, 0.24), Vec2::new(22.0, 25.0)),
-                Transform::from_xyz(0.0, 0.0, 0.2),
-            ));
-            // backpack
-            player.spawn((
-                Sprite::from_color(Color::srgb(0.12, 0.14, 0.15), Vec2::new(7.0, 19.0)),
-                Transform::from_xyz(-13.0, 0.0, 0.1),
-            ));
-            // head / face
-            player.spawn((
-                Sprite::from_color(Color::srgb(0.72, 0.58, 0.43), Vec2::new(15.0, 13.0)),
-                Transform::from_xyz(0.0, 18.0, 0.2),
-            ));
-            // helmet
-            player.spawn((
-                Sprite::from_color(Color::srgb(0.70, 0.56, 0.22), Vec2::new(18.0, 7.0)),
-                Transform::from_xyz(0.0, 25.0, 0.3),
-            ));
-            // helmet lamp
-            player.spawn((
-                Sprite::from_color(Color::srgb(0.96, 0.88, 0.54), Vec2::new(5.0, 5.0)),
-                Transform::from_xyz(6.0, 26.0, 0.4),
-            ));
-            // legs
-            player.spawn((
-                Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)),
-                Transform::from_xyz(-6.0, -20.0, 0.2),
-            ));
-            player.spawn((
-                Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)),
-                Transform::from_xyz(6.0, -20.0, 0.2),
-            ));
+            player
+                .spawn((PlayerVisual, Transform::default(), Visibility::default()))
+                .with_children(|visual| {
+                    visual.spawn((
+                        Sprite::from_color(
+                            Color::srgb(0.19, 0.22, 0.24),
+                            Vec2::new(22.0, 25.0),
+                        ),
+                        Transform::from_xyz(0.0, 0.0, 0.2),
+                    ));
+                    visual.spawn((
+                        Sprite::from_color(
+                            Color::srgb(0.12, 0.14, 0.15),
+                            Vec2::new(7.0, 19.0),
+                        ),
+                        Transform::from_xyz(-13.0, 0.0, 0.1),
+                    ));
+                    visual.spawn((
+                        Sprite::from_color(
+                            Color::srgb(0.72, 0.58, 0.43),
+                            Vec2::new(15.0, 13.0),
+                        ),
+                        Transform::from_xyz(0.0, 18.0, 0.2),
+                    ));
+                    visual.spawn((
+                        Sprite::from_color(
+                            Color::srgb(0.70, 0.56, 0.22),
+                            Vec2::new(18.0, 7.0),
+                        ),
+                        Transform::from_xyz(0.0, 25.0, 0.3),
+                    ));
+                    visual.spawn((
+                        Sprite::from_color(
+                            Color::srgb(0.96, 0.88, 0.54),
+                            Vec2::new(5.0, 5.0),
+                        ),
+                        Transform::from_xyz(6.0, 26.0, 0.4),
+                    ));
+                    visual.spawn((
+                        Sprite::from_color(
+                            Color::srgb(0.11, 0.13, 0.14),
+                            Vec2::new(7.0, 17.0),
+                        ),
+                        Transform::from_xyz(-6.0, -20.0, 0.2),
+                    ));
+                    visual.spawn((
+                        Sprite::from_color(
+                            Color::srgb(0.11, 0.13, 0.14),
+                            Vec2::new(7.0, 17.0),
+                        ),
+                        Transform::from_xyz(6.0, -20.0, 0.2),
+                    ));
+                });
         });
 
     commands.spawn((
@@ -148,6 +168,46 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
         Transform::from_xyz(SPAWN.x, SPAWN.y, 50.0),
     ));
+}
+
+/// Lightweight visual feedback: face the direction of travel and add a tiny
+/// bob/lean while moving. Physics and collider transforms are untouched.
+fn animate_player_visual(
+    time: Res<Time>,
+    player: Query<&LinearVelocity, With<Player>>,
+    mut visual: Query<&mut Transform, With<PlayerVisual>>,
+) {
+    let (Ok(velocity), Ok(mut visual)) = (player.single(), visual.single_mut()) else {
+        return;
+    };
+
+    let moving = velocity.x.abs() > 20.0;
+    let facing = if velocity.x > 20.0 {
+        1.0
+    } else if velocity.x < -20.0 {
+        -1.0
+    } else {
+        visual.scale.x.signum().max(1.0_f32.copysign(visual.scale.x))
+    };
+
+    // Preserve whichever way the explorer last faced when standing still.
+    let facing = if moving {
+        facing
+    } else if visual.scale.x < 0.0 {
+        -1.0
+    } else {
+        1.0
+    };
+
+    visual.scale = Vec3::new(facing, 1.0, 1.0);
+    if moving {
+        let phase = time.elapsed_secs() * 11.0;
+        visual.translation.y = phase.sin().abs() * 1.4;
+        visual.rotation = Quat::from_rotation_z(phase.sin() * 0.035 * facing);
+    } else {
+        visual.translation.y = 0.0;
+        visual.rotation = Quat::IDENTITY;
+    }
 }
 
 fn follow_camera(
