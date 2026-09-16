@@ -15,12 +15,15 @@ Highlights:
 - Cave crawlers, spike traps and Null Surge movement boosts add pressure without obscuring the core route.
 - Body simulation with wounds, fractures, bleeding, blood volume, unconsciousness and death.
 - Survival is intentionally simple: **Health, Hunger and Thirst**. There is no separate stamina meter.
-- Low hunger/thirst reduce movement performance. Critical dehydration is explicitly announced and begins reducing health/blood volume until the player drinks water.
+- Hunger has a direct readable consequence: below 65%, movement gradually slows; starvation becomes a major speed penalty.
+- Thirst owns the vision consequence: below 50%, the vignette progressively narrows the visible cave. Critical dehydration is announced and also drains health/blood volume until the player drinks water.
+- Untreated lacerations/fractures now bleed somewhat faster so visible health loss creates real urgency without becoming instant death.
 - New-player help is **non-blocking**. If the player immediately uses A/D or arrow keys, nothing interrupts them; if they mash unrelated keys first, the FIELD LOG gives a movement hint. Full controls remain available from `Esc` pause/help.
 - One larger mission panel lives at the top-left. Objective information is not duplicated elsewhere.
 - The current layer is always shown in large white SF Mono-style text at the true top-centre and updates directly from world state.
 - Pixel-style HUD: chunky framed panels, pixel icons, segmented coloured Health/Hunger/Thirst bars with numeric percentages, and a bordered 1-9 hotbar.
 - One compact animated right-side **FIELD LOG** slides in only for meaningful events such as entering a layer, discovering supplies, traps, crafting readiness, hunger/thirst warnings and other important state changes.
+- A compact pixel **RUN TIMES** leaderboard lives in the bottom-right, showing session-best and persistent personal-best times. Press `L` or click it to expand a full-screen top-five board; press `L` or click the expanded board to close it.
 - 1-9 hotbar with unlimited same-item stacking. `F` uses the selected item.
 - `C` opens a dedicated crafting screen.
 - `Esc` opens pause/help.
@@ -65,6 +68,8 @@ cargo run --release
 - `C` - open/close crafting
 - `1` / `2` / `3` while crafting - craft that recipe
 - `E` - melee attack
+- `L` - expand/collapse run leaderboard
+- mouse click on the mini/full leaderboard - expand/collapse it
 - `Esc` - pause / help
 - `R` - restart and generate a new cave
 - `Q` while paused - quit
