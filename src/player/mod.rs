@@ -77,7 +77,6 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
         PlayerInventory::default(),
     )).with_children(|player| {
         player.spawn((PlayerVisual, Transform::default(), Visibility::default())).with_children(|visual| {
-            // soft red flash around the explorer while actively bleeding
             visual.spawn((
                 BleedPulse,
                 Sprite::from_color(Color::srgba(0.75, 0.05, 0.04, 0.0), Vec2::new(36.0, 58.0)),
@@ -102,16 +101,15 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 fn animate_player_root(
-    time: Res<Time>,
     player: Query<&LinearVelocity, With<Player>>,
     mut visual: Query<&mut Transform, With<PlayerVisual>>,
 ) {
     let (Ok(velocity), Ok(mut visual)) = (player.single(), visual.single_mut()) else { return; };
-    let moving = velocity.x.abs() > 25.0;
-    let facing = if velocity.x > 25.0 { 1.0 } else if velocity.x < -25.0 { -1.0 } else if visual.scale.x < 0.0 { -1.0 } else { 1.0 };
+    let facing = if velocity.x > 20.0 { 1.0 } else if velocity.x < -20.0 { -1.0 } else if visual.scale.x < 0.0 { -1.0 } else { 1.0 };
     visual.scale = Vec3::new(facing, 1.0, 1.0);
-    // Small body rise only; no whole-body rotation, which looked like sliding/tilting.
-    visual.translation.y = if moving { (time.elapsed_secs() * 10.0).sin().abs() * 1.0 } else { 0.0 };
+    // Keep the torso stable. Only the legs move; whole-body bob/tilt made
+    // ordinary A/D movement look floaty.
+    visual.translation = Vec3::ZERO;
     visual.rotation = Quat::IDENTITY;
 }
 
@@ -122,12 +120,13 @@ fn animate_player_legs(
 ) {
     let Ok(velocity) = player.single() else { return; };
     let moving = velocity.x.abs() > 25.0;
-    let phase = time.elapsed_secs() * 11.0;
+    let phase = time.elapsed_secs() * 8.5;
     for (leg, mut transform) in &mut legs {
-        let stride = if moving { (phase + if leg.side > 0.0 { std::f32::consts::PI } else { 0.0 }).sin() } else { 0.0 };
-        transform.translation.x = leg.side * 6.0 + stride * 1.6;
-        transform.translation.y = -20.0 + stride.abs() * 1.5;
-        transform.rotation = Quat::from_rotation_z(stride * 0.08);
+        let offset = if leg.side > 0.0 { std::f32::consts::PI } else { 0.0 };
+        let stride = if moving { (phase + offset).sin() } else { 0.0 };
+        transform.translation.x = leg.side * 6.0 + stride * 0.8;
+        transform.translation.y = -20.0 + stride.max(0.0) * 1.0;
+        transform.rotation = Quat::IDENTITY;
     }
 }
 
@@ -137,11 +136,10 @@ fn animate_bleeding(
     mut pulse: Query<(&mut Sprite, &mut Transform), With<BleedPulse>>,
 ) {
     let (Ok(body), Ok((mut sprite, mut transform))) = (player.single(), pulse.single_mut()) else { return; };
-    if body.0.total_bleed_rate() > 0.0 {
-        let wave = 0.5 + 0.5 * (time.elapsed_secs() * 7.0).sin();
-        sprite.color = Color::srgba(0.82, 0.06, 0.04, 0.10 + wave * 0.22);
-        let scale = 1.0 + wave * 0.10;
-        transform.scale = Vec3::splat(scale);
+    if body.0.total_bleed_rate() > 0.0005 {
+        let wave = 0.5 + 0.5 * (time.elapsed_secs() * 6.0).sin();
+        sprite.color = Color::srgba(0.82, 0.06, 0.04, 0.08 + wave * 0.16);
+        transform.scale = Vec3::splat(1.0 + wave * 0.06);
     } else {
         sprite.color = Color::srgba(0.82, 0.06, 0.04, 0.0);
         transform.scale = Vec3::ONE;
