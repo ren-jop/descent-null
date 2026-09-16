@@ -1,6 +1,6 @@
-//! Bevy wiring for hunger and thirst. The model is intentionally direct:
-//! low needs reduce movement, while critical dehydration starts reducing
-//! blood volume so the health consequence is visible and understandable.
+//! Bevy wiring for hunger and thirst. Hunger is the movement-pressure need;
+//! thirst is the vision/health-pressure need. Critical dehydration drains
+//! blood volume quickly enough that ignoring water becomes an urgent problem.
 
 use avian2d::prelude::*;
 use bevy::prelude::*;
@@ -11,10 +11,12 @@ use crate::physics::CharacterController;
 use super::state::SurvivalState;
 
 const NORMAL_SPEED_CAP: f32 = 180.0;
-const LOW_NEEDS_MIN_SPEED_CAP: f32 = 105.0;
+const STARVING_SPEED_CAP: f32 = 65.0;
+const HUNGER_SLOW_START: f32 = 0.65;
 const CRITICAL_THIRST: f32 = 0.12;
-/// At zero thirst this removes roughly 1.5% blood volume per second.
-const DEHYDRATION_BLOOD_DRAIN_PER_SEC: f32 = 0.015;
+/// At zero thirst this removes roughly 4% blood volume per second. The effect
+/// ramps in below 12% so the field log/vision warning arrives before damage.
+const DEHYDRATION_BLOOD_DRAIN_PER_SEC: f32 = 0.04;
 
 #[derive(Component, Default)]
 pub struct Survival(pub SurvivalState);
@@ -41,20 +43,17 @@ fn apply_survival_consequences(
 ) {
     let dt = time.delta_secs();
     for (survival, mut body, mut velocity) in &mut query {
-        let hardship = survival
-            .0
-            .hunger_hardship()
-            .max(survival.0.thirst_hardship());
-
-        if hardship > 0.0 {
+        // Hunger has one simple, readable consequence: the lower it gets,
+        // the slower horizontal movement becomes. Thirst does not also slow
+        // movement; it owns the vision + dehydration-health consequences.
+        let hunger = survival.0.hunger();
+        if hunger < HUNGER_SLOW_START {
+            let severity = 1.0 - hunger / HUNGER_SLOW_START;
             let cap = NORMAL_SPEED_CAP
-                - (NORMAL_SPEED_CAP - LOW_NEEDS_MIN_SPEED_CAP) * hardship;
+                - (NORMAL_SPEED_CAP - STARVING_SPEED_CAP) * severity.clamp(0.0, 1.0);
             velocity.x = velocity.x.clamp(-cap, cap);
         }
 
-        // Dehydration is the survival need with the clearest direct health
-        // consequence. The drain ramps in only below 12%, avoiding mysterious
-        // health loss while the normal blue thirst meter is still comfortable.
         if survival.0.thirst() < CRITICAL_THIRST {
             let severity = 1.0 - survival.0.thirst() / CRITICAL_THIRST;
             body.0
