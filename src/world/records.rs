@@ -19,7 +19,7 @@ pub struct SessionTimes {
 
 impl SessionTimes {
     fn normalise(&mut self) {
-        self.records.retain(|record| record.seconds.is_finite() && *&record.seconds > 0.0);
+        self.records.retain(|record| record.seconds.is_finite() && record.seconds > 0.0);
         self.records.sort_by(|a, b| a.seconds.total_cmp(&b.seconds));
         self.records.truncate(MAX_RECORDS);
     }
