@@ -21,8 +21,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(
                 Update,
                 (
-                    animate_player_root,
-                    animate_player_legs,
+                    animate_player_visual,
                     animate_bleeding,
                     follow_camera,
                     add_shake_on_landing,
@@ -40,10 +39,13 @@ impl Plugin for PlayerPlugin {
 #[derive(Component)] pub struct FollowCamera;
 #[derive(Component)] struct PlayerVisual;
 #[derive(Component)] struct BleedPulse;
-#[derive(Component, Clone, Copy)] struct LegVisual { side: f32 }
 #[derive(Component)] struct Vignette;
 
 const HINT_SECONDS: f32 = 7.0;
+/// The physics body was already correct; only the rendered explorer sat too
+/// low inside it. Raising the child visual keeps the exact controller/collider
+/// while putting the boots visually on top of platform tiles.
+const VISUAL_BASE_Y: f32 = 6.0;
 
 #[derive(Resource)]
 pub struct SpawnHint(pub f32);
@@ -76,7 +78,11 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
         Survival::default(),
         PlayerInventory::default(),
     )).with_children(|player| {
-        player.spawn((PlayerVisual, Transform::default(), Visibility::default())).with_children(|visual| {
+        player.spawn((
+            PlayerVisual,
+            Transform::from_xyz(0.0, VISUAL_BASE_Y, 0.0),
+            Visibility::default(),
+        )).with_children(|visual| {
             visual.spawn((
                 BleedPulse,
                 Sprite::from_color(Color::srgba(0.75, 0.05, 0.04, 0.0), Vec2::new(36.0, 58.0)),
@@ -87,8 +93,8 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
             visual.spawn((Sprite::from_color(Color::srgb(0.72, 0.58, 0.43), Vec2::new(15.0, 13.0)), Transform::from_xyz(0.0, 18.0, 0.2)));
             visual.spawn((Sprite::from_color(Color::srgb(0.70, 0.56, 0.22), Vec2::new(18.0, 7.0)), Transform::from_xyz(0.0, 25.0, 0.3)));
             visual.spawn((Sprite::from_color(Color::srgb(0.96, 0.88, 0.54), Vec2::new(5.0, 5.0)), Transform::from_xyz(6.0, 26.0, 0.4)));
-            visual.spawn((LegVisual { side: -1.0 }, Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)), Transform::from_xyz(-6.0, -20.0, 0.2)));
-            visual.spawn((LegVisual { side: 1.0 }, Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)), Transform::from_xyz(6.0, -20.0, 0.2)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)), Transform::from_xyz(-6.0, -20.0, 0.2)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)), Transform::from_xyz(6.0, -20.0, 0.2)));
         });
     });
 
@@ -100,33 +106,34 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 }
 
-fn animate_player_root(
+/// Restore the earlier walk presentation exactly: same 11 Hz pacing, same
+/// bob amount, same slight lean and the same left/right flip. The only visual
+/// change is VISUAL_BASE_Y, which corrects platform clipping.
+fn animate_player_visual(
+    time: Res<Time>,
     player: Query<&LinearVelocity, With<Player>>,
     mut visual: Query<&mut Transform, With<PlayerVisual>>,
 ) {
     let (Ok(velocity), Ok(mut visual)) = (player.single(), visual.single_mut()) else { return; };
-    let facing = if velocity.x > 20.0 { 1.0 } else if velocity.x < -20.0 { -1.0 } else if visual.scale.x < 0.0 { -1.0 } else { 1.0 };
-    visual.scale = Vec3::new(facing, 1.0, 1.0);
-    // Keep the torso stable. Only the legs move; whole-body bob/tilt made
-    // ordinary A/D movement look floaty.
-    visual.translation = Vec3::ZERO;
-    visual.rotation = Quat::IDENTITY;
-}
+    let moving = velocity.x.abs() > 20.0;
+    let facing = if velocity.x > 20.0 {
+        1.0
+    } else if velocity.x < -20.0 {
+        -1.0
+    } else if visual.scale.x < 0.0 {
+        -1.0
+    } else {
+        1.0
+    };
 
-fn animate_player_legs(
-    time: Res<Time>,
-    player: Query<&LinearVelocity, With<Player>>,
-    mut legs: Query<(&LegVisual, &mut Transform)>,
-) {
-    let Ok(velocity) = player.single() else { return; };
-    let moving = velocity.x.abs() > 25.0;
-    let phase = time.elapsed_secs() * 8.5;
-    for (leg, mut transform) in &mut legs {
-        let offset = if leg.side > 0.0 { std::f32::consts::PI } else { 0.0 };
-        let stride = if moving { (phase + offset).sin() } else { 0.0 };
-        transform.translation.x = leg.side * 6.0 + stride * 0.8;
-        transform.translation.y = -20.0 + stride.max(0.0) * 1.0;
-        transform.rotation = Quat::IDENTITY;
+    visual.scale = Vec3::new(facing, 1.0, 1.0);
+    if moving {
+        let phase = time.elapsed_secs() * 11.0;
+        visual.translation.y = VISUAL_BASE_Y + phase.sin().abs() * 1.4;
+        visual.rotation = Quat::from_rotation_z(phase.sin() * 0.035 * facing);
+    } else {
+        visual.translation.y = VISUAL_BASE_Y;
+        visual.rotation = Quat::IDENTITY;
     }
 }
 
@@ -138,7 +145,7 @@ fn animate_bleeding(
     let (Ok(body), Ok((mut sprite, mut transform))) = (player.single(), pulse.single_mut()) else { return; };
     if body.0.total_bleed_rate() > 0.0005 {
         let wave = 0.5 + 0.5 * (time.elapsed_secs() * 6.0).sin();
-        sprite.color = Color::srgba(0.82, 0.06, 0.04, 0.08 + wave * 0.16);
+        sprite.color = Color::srgba(0.82, 0.06, 0.04, 0.06 + wave * 0.14);
         transform.scale = Vec3::splat(1.0 + wave * 0.06);
     } else {
         sprite.color = Color::srgba(0.82, 0.06, 0.04, 0.0);
