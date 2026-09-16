@@ -1,4 +1,8 @@
-//! carry-weight-limited inventory. pure data, no bevy.
+//! Stack-based inventory. Pure data, no Bevy.
+//!
+//! Items of the same kind always merge into one stack. `capacity` is kept as
+//! legacy metadata for older callers/tests, but it is no longer a hard pickup
+//! limit: the backpack can grow naturally and the UI reports carried weight.
 
 use super::item::{ItemKind, ItemStack};
 
@@ -26,28 +30,31 @@ impl Inventory {
     }
 
     pub fn quantity_of(&self, kind: ItemKind) -> u32 {
-        self.stacks.iter().filter(|s| s.kind == kind).map(|s| s.quantity).sum()
+        self.stacks
+            .iter()
+            .filter(|stack| stack.kind == kind)
+            .map(|stack| stack.quantity)
+            .sum()
     }
 
-    /// tries to add the stack, merging into an existing stack of the same
-    /// kind if there is one. returns false (and adds nothing) if it would
-    /// go over capacity.
+    /// Adds a stack and merges it with an existing stack of the same item.
+    /// There is intentionally no per-stack or hard backpack cap.
     pub fn add(&mut self, incoming: ItemStack) -> bool {
-        if self.used_weight() + incoming.total_weight() > self.capacity {
-            return false;
-        }
-        if let Some(existing) = self.stacks.iter_mut().find(|s| s.kind == incoming.kind) {
-            existing.quantity += incoming.quantity;
+        if let Some(existing) = self
+            .stacks
+            .iter_mut()
+            .find(|stack| stack.kind == incoming.kind)
+        {
+            existing.quantity = existing.quantity.saturating_add(incoming.quantity);
         } else {
             self.stacks.push(incoming);
         }
         true
     }
 
-    /// removes up to `quantity` of `kind`. returns how much was actually
-    /// removed (may be less than requested, or zero).
+    /// Removes up to `quantity` of `kind`. Returns how much was removed.
     pub fn remove(&mut self, kind: ItemKind, quantity: u32) -> u32 {
-        let Some(index) = self.stacks.iter().position(|s| s.kind == kind) else {
+        let Some(index) = self.stacks.iter().position(|stack| stack.kind == kind) else {
             return 0;
         };
         let removed = quantity.min(self.stacks[index].quantity);
@@ -64,27 +71,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn adding_within_capacity_succeeds() {
-        let mut inv = Inventory::new(10);
-        assert!(inv.add(ItemStack::new(ItemKind::Scrap, 3)));
-        assert_eq!(inv.quantity_of(ItemKind::Scrap), 3);
-    }
-
-    #[test]
-    fn adding_past_capacity_fails_and_changes_nothing() {
+    fn adding_items_succeeds_even_past_legacy_capacity() {
         let mut inv = Inventory::new(2);
-        assert!(!inv.add(ItemStack::new(ItemKind::Metal, 3)));
-        assert_eq!(inv.quantity_of(ItemKind::Metal), 0);
-        assert_eq!(inv.used_weight(), 0);
+        assert!(inv.add(ItemStack::new(ItemKind::Metal, 30)));
+        assert_eq!(inv.quantity_of(ItemKind::Metal), 30);
+        assert_eq!(inv.stacks().len(), 1);
     }
 
     #[test]
-    fn same_kind_merges_into_one_stack() {
+    fn same_kind_merges_into_one_unlimited_stack() {
         let mut inv = Inventory::new(10);
         inv.add(ItemStack::new(ItemKind::Water, 1));
-        inv.add(ItemStack::new(ItemKind::Water, 2));
+        inv.add(ItemStack::new(ItemKind::Water, 200));
         assert_eq!(inv.stacks().len(), 1);
-        assert_eq!(inv.quantity_of(ItemKind::Water), 3);
+        assert_eq!(inv.quantity_of(ItemKind::Water), 201);
     }
 
     #[test]
