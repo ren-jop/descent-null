@@ -28,7 +28,29 @@ impl ItemKind {
         }
     }
 
-    // how much of an inventory slot's carry weight one unit takes up.
+    /// Short beginner-facing explanation shown on pickup and selection.
+    pub fn purpose(self) -> &'static str {
+        match self {
+            ItemKind::Scrap => "crafting material - used in bandages and splints",
+            ItemKind::Cloth => "crafting material - used in bandages and medkits",
+            ItemKind::Metal => "crafting material - used in splints and medkits",
+            ItemKind::Food => "use with F to restore hunger",
+            ItemKind::Water => "use with F to restore thirst",
+            ItemKind::Battery => "crafting material - used in medkits",
+            ItemKind::Bandage => "use with F to stop active bleeding",
+            ItemKind::Splint => "use with F to stabilise a leg fracture",
+            ItemKind::Medkit => "use with F to restore blood and treat pain",
+        }
+    }
+
+    pub fn is_directly_usable(self) -> bool {
+        matches!(
+            self,
+            ItemKind::Food | ItemKind::Water | ItemKind::Bandage | ItemKind::Splint | ItemKind::Medkit
+        )
+    }
+
+    // how much of the pack's carry-weight budget one unit takes up.
     pub fn weight(self) -> u32 {
         match self {
             ItemKind::Scrap | ItemKind::Cloth | ItemKind::Metal => 1,

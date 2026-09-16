@@ -1,13 +1,14 @@
-//! Landing impact from downward speed. Milestone 1 records the event;
-//! Milestone 2 will turn it into location-specific wounds.
+//! Landing impact from downward speed.
 
-/// Downward speed (world units / second) below which a landing is a step, not a hit.
-pub const LANDING_SPEED_THRESHOLD: f32 = 450.0;
+/// Downward speed below which a landing is harmless.
+///
+/// This is intentionally above the return speed of a normal jump. In practice
+/// it adds roughly one jump-height of extra safety compared with the old
+/// threshold, so ordinary traversal does not constantly punish the player.
+pub const LANDING_SPEED_THRESHOLD: f32 = 600.0;
 /// Extra speed that maps to a full-severity (1.0) impact.
 pub const LANDING_FULL_SEVERITY_SPAN: f32 = 550.0;
 
-/// Tracks the worst downward speed while airborne so a landing can use
-/// actual impact velocity instead of fall *tiles*.
 #[derive(Clone, Debug, Default)]
 pub struct FallTracker {
     max_downward_speed: f32,
@@ -35,8 +36,6 @@ impl FallTracker {
     }
 }
 
-/// 0..=1 impact factor from landing speed. `None` means the landing is
-/// harmless for simulation purposes.
 pub fn landing_severity(downward_speed: f32) -> Option<f32> {
     if downward_speed < LANDING_SPEED_THRESHOLD {
         None
@@ -51,8 +50,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gentle_touchdown_is_not_an_impact() {
-        assert_eq!(landing_severity(200.0), None);
+    fn normal_jump_return_speed_is_safe() {
+        assert_eq!(landing_severity(400.0), None);
         assert_eq!(landing_severity(LANDING_SPEED_THRESHOLD - 1.0), None);
     }
 
@@ -72,6 +71,6 @@ mod tests {
         assert!(t.observe(false, -300.0).is_none());
         let landed = t.observe(true, 0.0).unwrap();
         assert!((landed - 800.0).abs() < f32::EPSILON);
-        assert!(t.observe(true, 0.0).is_none(), "staying grounded is not a new landing");
+        assert!(t.observe(true, 0.0).is_none());
     }
 }

@@ -1,6 +1,4 @@
-//! enemy stats and the idle/chase/attack decision — pure logic, no bevy.
-//! deliberately a flat 3-state machine, not a behavior tree: this is
-//! meant to be one simple, reliable enemy, not a framework.
+//! Enemy stats and the idle/chase/attack decision.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnemyState {
@@ -9,13 +7,11 @@ pub enum EnemyState {
     Attacking,
 }
 
-/// beyond this distance the enemy doesn't notice the player at all.
-pub const DETECTION_RANGE: f32 = 260.0;
-/// within this distance it stops closing in and attacks instead.
-pub const ATTACK_RANGE: f32 = 34.0;
+/// Crawlers should create pressure before they are already on top of the
+/// player, especially on deeper layers.
+pub const DETECTION_RANGE: f32 = 330.0;
+pub const ATTACK_RANGE: f32 = 38.0;
 
-/// picks a state purely from distance to the player. no memory/hysteresis
-/// on purpose — simple and reliable beats a fancier state machine here.
 pub fn state_for_distance(distance: f32) -> EnemyState {
     if distance <= ATTACK_RANGE {
         EnemyState::Attacking

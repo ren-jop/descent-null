@@ -4,7 +4,7 @@
 
 use super::cardio::Cardio;
 use super::region::BodyRegion;
-use super::wound::Wound;
+use super::wound::{Wound, WoundKind};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BodyState {
@@ -29,19 +29,14 @@ impl BodyState {
         self.wounds.iter().filter(|w| w.region == region).count()
     }
 
-    /// Sum of every untreated wound's ongoing pain contribution.
     pub fn total_pain(&self) -> f32 {
         self.wounds.iter().map(|w| w.pain).sum()
     }
 
-    /// Blood volume lost per second across every untreated wound.
     pub fn total_bleed_rate(&self) -> f32 {
         self.wounds.iter().map(|w| w.bleed_rate).sum()
     }
 
-    /// Advances the cardiovascular model by `dt` seconds: applies bleeding
-    /// from the current wound list, then lets passive regen claw a little
-    /// back. Call once per frame.
     pub fn tick(&mut self, dt: f32) {
         let bleed = self.total_bleed_rate() * dt;
         if bleed > 0.0 {
@@ -50,9 +45,6 @@ impl BodyState {
         self.cardio.regen(dt);
     }
 
-    /// Drains blood volume from a source other than a wound — starvation,
-    /// dehydration, anything else that should erode the same consciousness
-    /// pipeline instead of needing its own KO/death logic.
     pub fn apply_external_drain(&mut self, amount: f32) {
         self.cardio.apply_drain(amount);
     }
@@ -69,45 +61,41 @@ impl BodyState {
         self.cardio.is_dead()
     }
 
-    /// Restores blood volume directly — a medkit's effect. Clamped at full.
     pub fn heal_blood_volume(&mut self, amount: f32) {
         self.cardio.heal(amount);
     }
 
-    /// Bandages the worst active bleed: stops that wound's bleeding and
-    /// marks it treated. Returns true if there was anything to bandage.
-    pub fn treat_worst_bleeding(&mut self) -> bool {
-        let target = self
-            .wounds
-            .iter_mut()
-            .filter(|w| w.bleed_rate > 0.0)
-            .max_by(|a, b| a.bleed_rate.partial_cmp(&b.bleed_rate).unwrap());
-        match target {
-            Some(wound) => {
+    /// Stops every currently active bleed. This only treats the bleeding
+    /// symptom: it deliberately does not mark the underlying wound/fracture
+    /// as fully treated, so a bandage cannot replace a splint.
+    pub fn treat_all_bleeding(&mut self) -> usize {
+        let mut treated = 0;
+        for wound in &mut self.wounds {
+            if wound.bleed_rate > 0.0 {
                 wound.bleed_rate = 0.0;
-                wound.treated = true;
-                true
+                treated += 1;
             }
-            None => false,
         }
+        treated
     }
 
-    /// True if a leg fracture is present and hasn't been splinted —
-    /// used to apply the movement penalty.
+    pub fn treat_worst_bleeding(&mut self) -> bool {
+        self.treat_all_bleeding() > 0
+    }
+
     pub fn has_untreated_leg_fracture(&self) -> bool {
         self.wounds.iter().any(|w| {
-            w.kind == super::wound::WoundKind::Fracture
+            w.kind == WoundKind::Fracture
                 && matches!(w.region, BodyRegion::LeftLeg | BodyRegion::RightLeg)
                 && !w.treated
         })
     }
 
-    /// Splints the first untreated fracture. Returns true if there was one.
     pub fn treat_fracture(&mut self) -> bool {
         let target = self
             .wounds
             .iter_mut()
-            .find(|w| w.kind == super::wound::WoundKind::Fracture && !w.treated);
+            .find(|w| w.kind == WoundKind::Fracture && !w.treated);
         match target {
             Some(wound) => {
                 wound.treated = true;
@@ -117,23 +105,21 @@ impl BodyState {
         }
     }
 
-    /// Clears the pain of one untreated wound (any kind) — used as part of
-    /// a medkit's effect alongside `heal_blood_volume`.
+    /// Reduces pain without pretending a broken bone has been stabilised.
     pub fn treat_pain(&mut self) -> bool {
-        let target = self.wounds.iter_mut().find(|w| !w.treated && w.pain > 0.0);
+        let target = self.wounds.iter_mut().find(|w| w.pain > 0.0);
         match target {
             Some(wound) => {
                 wound.pain = 0.0;
-                wound.treated = true;
+                if wound.kind != WoundKind::Fracture {
+                    wound.treated = true;
+                }
                 true
             }
             None => false,
         }
     }
 
-    /// Clears every wound and restores the cardiovascular state to full —
-    /// used when the player resets to the starting ledge, so repeated
-    /// testing (or dying) doesn't leave old damage lying around.
     pub fn clear(&mut self) {
         self.wounds.clear();
         self.cardio = Cardio::default();
@@ -142,7 +128,7 @@ impl BodyState {
 
 #[cfg(test)]
 mod tests {
-    use super::super::wound::{landing_wound, WoundKind};
+    use super::super::wound::landing_wound;
     use super::*;
 
     #[test]
@@ -229,12 +215,22 @@ mod tests {
     }
 
     #[test]
-    fn bandaging_stops_the_worst_bleed() {
+    fn bandaging_stops_all_active_bleeding() {
         let mut body = BodyState::default();
         body.apply_wound(landing_wound(BodyRegion::LeftLeg, 0.9).unwrap());
+        body.apply_wound(landing_wound(BodyRegion::RightLeg, 0.9).unwrap());
         assert!(body.total_bleed_rate() > 0.0);
-        assert!(body.treat_worst_bleeding());
+        assert_eq!(body.treat_all_bleeding(), 2);
         assert_eq!(body.total_bleed_rate(), 0.0);
+    }
+
+    #[test]
+    fn bandage_does_not_replace_a_splint() {
+        let mut body = BodyState::default();
+        body.apply_wound(landing_wound(BodyRegion::LeftLeg, 0.95).unwrap());
+        assert!(body.has_untreated_leg_fracture());
+        body.treat_all_bleeding();
+        assert!(body.has_untreated_leg_fracture());
     }
 
     #[test]
@@ -250,6 +246,14 @@ mod tests {
         assert!(body.has_untreated_leg_fracture());
         assert!(body.treat_fracture());
         assert!(!body.has_untreated_leg_fracture());
+    }
+
+    #[test]
+    fn medkit_pain_relief_does_not_replace_a_splint() {
+        let mut body = BodyState::default();
+        body.apply_wound(landing_wound(BodyRegion::RightLeg, 0.95).unwrap());
+        assert!(body.treat_pain());
+        assert!(body.has_untreated_leg_fracture());
     }
 
     #[test]

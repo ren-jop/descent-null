@@ -4,6 +4,7 @@
 use avian2d::{math::*, prelude::*};
 use bevy::ecs::query::Has;
 use bevy::prelude::*;
+use bevy::time::Virtual;
 
 use super::jump::JumpAssist;
 use super::landing::{landing_severity, FallTracker};
@@ -95,7 +96,7 @@ impl CharacterControllerBundle {
             locked_axes: LockedAxes::ROTATION_LOCKED,
             acceleration: MovementAcceleration(1250.0),
             damping: MovementDampingFactor(5.0),
-            jump_impulse: JumpImpulse(400.0),
+            jump_impulse: JumpImpulse(600.0),
             max_slope_angle: MaxSlopeAngle(30.0_f32.to_radians()),
             jump_assist: JumpAssistState::default(),
             fall_tracker: FallTrackerState::default(),
@@ -106,7 +107,14 @@ impl CharacterControllerBundle {
 fn keyboard_input(
     mut movement_writer: MessageWriter<MovementAction>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    virtual_time: Res<Time<Virtual>>,
 ) {
+    // Full-screen UI pauses virtual time. Do not queue movement/jumps while a
+    // player is reading the guide, viewing records or typing their expo name.
+    if virtual_time.is_paused() {
+        return;
+    }
+
     let left = keyboard.any_pressed([KeyCode::KeyA, KeyCode::ArrowLeft]);
     let right = keyboard.any_pressed([KeyCode::KeyD, KeyCode::ArrowRight]);
     let direction = (right as i8 - left as i8) as f32;
@@ -195,8 +203,6 @@ fn apply_movement(
         if jump_pressed {
             assist.0.press_jump();
         }
-        // Consume independently of this frame's press so a buffered jump
-        // can fire on the landing frame.
         if assist.0.consume_jump() {
             velocity.y = jump.0;
         }

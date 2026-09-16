@@ -1,7 +1,6 @@
-//! Cardiovascular state: the sink that wounds (and, later, starvation/
-//! dehydration) drain into. Deliberately just one number for now — real
-//! heart rate / shock / infection are future work — but it's a real
-//! number with real consequences: run it to zero and the player dies.
+//! Cardiovascular state: the sink that wounds and survival pressure drain into.
+//! Deliberately just one number for now, but it has direct consequences: run
+//! blood volume low enough and the player is knocked out or dies.
 
 /// Blood volume is 0..=1 (fraction of a full, healthy supply).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -13,11 +12,10 @@ pub struct Cardio {
 pub const KO_THRESHOLD: f32 = 0.40;
 /// Below this fraction, the player is dead.
 pub const DEATH_THRESHOLD: f32 = 0.15;
-/// Passive recovery — stands in for clotting until a real medical/treatment
-/// system exists (docs/REBUILD_PLAN.md milestone 6). Small on purpose: it
-/// should not out-heal an active wound, only slowly undo old damage once
-/// nothing is actively bleeding.
-const PASSIVE_REGEN_PER_SEC: f32 = 0.01;
+/// Free recovery is intentionally modest. The earlier 1%/s rate erased too
+/// much danger between encounters; treatment and good survival management
+/// should matter more than simply waiting.
+const PASSIVE_REGEN_PER_SEC: f32 = 0.004;
 
 impl Default for Cardio {
     fn default() -> Self {
@@ -30,15 +28,15 @@ impl Cardio {
         self.blood_volume
     }
 
-    /// Removes blood volume (from bleeding, starvation, dehydration —
-    /// anything). Never goes below zero.
+    /// Removes blood volume (from bleeding, starvation, dehydration, etc.).
+    /// Never goes below zero.
     pub fn apply_drain(&mut self, amount: f32) {
         self.blood_volume = (self.blood_volume - amount).max(0.0);
     }
 
-    /// Slow passive recovery, clamped at full. Called once per tick
-    /// alongside whatever drains applied that same tick, so an actively
-    /// bleeding wound still nets a loss.
+    /// Very slow passive recovery, clamped at full. Active bleeding or severe
+    /// survival pressure easily overwhelms this; medical items are the reliable
+    /// way to recover meaningful health during a run.
     pub fn regen(&mut self, dt: f32) {
         self.blood_volume = (self.blood_volume + PASSIVE_REGEN_PER_SEC * dt).min(1.0);
     }
@@ -103,6 +101,6 @@ mod tests {
         let mut cardio = Cardio::default();
         cardio.apply_drain(0.2);
         cardio.regen(1.0);
-        assert!(cardio.blood_volume() > 0.8 && cardio.blood_volume() < 1.0);
+        assert!(cardio.blood_volume() > 0.8 && cardio.blood_volume() < 0.81);
     }
 }

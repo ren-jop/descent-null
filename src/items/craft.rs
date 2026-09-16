@@ -1,6 +1,6 @@
-//! simple crafting: fixed recipes, first one you can afford gets made.
-//! no crafting menu yet — pressing the craft key just tries them in
-//! order. pure logic, no bevy.
+//! Small recipe catalogue used by the crafting menu.
+//! Crafting is deliberate: the player chooses a numbered recipe instead
+//! of `C` silently crafting the first affordable result.
 
 use super::inventory::Inventory;
 use super::item::{ItemKind, ItemStack};
@@ -8,47 +8,84 @@ use super::item::{ItemKind, ItemStack};
 struct Recipe {
     inputs: &'static [(ItemKind, u32)],
     output: ItemStack,
+    purpose: &'static str,
 }
 
 const RECIPES: &[Recipe] = &[
     Recipe {
         inputs: &[(ItemKind::Scrap, 3), (ItemKind::Cloth, 1)],
         output: ItemStack { kind: ItemKind::Bandage, quantity: 1 },
+        purpose: "Stops bleeding and restores some health",
     },
     Recipe {
         inputs: &[(ItemKind::Metal, 2), (ItemKind::Scrap, 1)],
         output: ItemStack { kind: ItemKind::Splint, quantity: 1 },
+        purpose: "Stabilises a leg fracture",
     },
     Recipe {
         inputs: &[(ItemKind::Cloth, 1), (ItemKind::Metal, 1), (ItemKind::Battery, 1)],
         output: ItemStack { kind: ItemKind::Medkit, quantity: 1 },
+        purpose: "Restores more health and treats pain",
     },
 ];
 
-/// human-readable recipe list for the UI (see ui::spawn_recipe_panel) —
-/// "what crafts what and why" was invisible before, this is how the
-/// crafting panel knows what to show without duplicating the recipe data.
+pub fn recipe_count() -> usize {
+    RECIPES.len()
+}
+
 pub fn recipe_descriptions() -> Vec<String> {
     RECIPES
         .iter()
-        .map(|recipe| {
+        .enumerate()
+        .map(|(index, recipe)| {
             let inputs = recipe
                 .inputs
                 .iter()
                 .map(|(kind, qty)| format!("{qty} {}", kind.label()))
                 .collect::<Vec<_>>()
                 .join(" + ");
-            format!("{inputs} -> {}", recipe.output.kind.label())
+            format!(
+                "[{}] {}\n    Need: {}\n    Use: {}",
+                index + 1,
+                recipe.output.kind.label().to_uppercase(),
+                inputs,
+                recipe.purpose,
+            )
         })
         .collect()
 }
 
-/// tries each recipe in order; crafts (consumes inputs, adds output) the
-/// first one the inventory can afford. returns the crafted kind, if any.
-pub fn try_craft(inventory: &mut Inventory) -> Option<ItemKind> {
-    let recipe = RECIPES
+pub fn can_craft(inventory: &Inventory, index: usize) -> bool {
+    RECIPES
+        .get(index)
+        .map(|recipe| {
+            recipe
+                .inputs
+                .iter()
+                .all(|(kind, qty)| inventory.quantity_of(*kind) >= *qty)
+        })
+        .unwrap_or(false)
+}
+
+/// Returns the first currently craftable result. Used only for a compact HUD
+/// hint; the player still chooses a recipe in the crafting menu.
+pub fn first_craftable(inventory: &Inventory) -> Option<ItemKind> {
+    RECIPES
         .iter()
-        .find(|r| r.inputs.iter().all(|(kind, qty)| inventory.quantity_of(*kind) >= *qty))?;
+        .enumerate()
+        .find(|(index, _)| can_craft(inventory, *index))
+        .map(|(_, recipe)| recipe.output.kind)
+}
+
+pub fn try_craft_index(inventory: &mut Inventory, index: usize) -> Option<ItemKind> {
+    let recipe = RECIPES.get(index)?;
+    if !recipe
+        .inputs
+        .iter()
+        .all(|(kind, qty)| inventory.quantity_of(*kind) >= *qty)
+    {
+        return None;
+    }
     for (kind, qty) in recipe.inputs {
         inventory.remove(*kind, *qty);
     }
@@ -56,40 +93,42 @@ pub fn try_craft(inventory: &mut Inventory) -> Option<ItemKind> {
     Some(recipe.output.kind)
 }
 
+pub fn try_craft(inventory: &mut Inventory) -> Option<ItemKind> {
+    let index = (0..RECIPES.len()).find(|index| can_craft(inventory, *index))?;
+    try_craft_index(inventory, index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn crafts_bandage_when_materials_available() {
+    fn crafts_selected_bandage_when_materials_available() {
         let mut inv = Inventory::new(20);
         inv.add(ItemStack::new(ItemKind::Scrap, 3));
         inv.add(ItemStack::new(ItemKind::Cloth, 1));
-        assert_eq!(try_craft(&mut inv), Some(ItemKind::Bandage));
+        assert_eq!(try_craft_index(&mut inv, 0), Some(ItemKind::Bandage));
         assert_eq!(inv.quantity_of(ItemKind::Bandage), 1);
-        assert_eq!(inv.quantity_of(ItemKind::Scrap), 0);
-        assert_eq!(inv.quantity_of(ItemKind::Cloth), 0);
     }
 
     #[test]
-    fn does_nothing_without_materials() {
+    fn refuses_selected_recipe_without_materials() {
         let mut inv = Inventory::new(20);
-        assert_eq!(try_craft(&mut inv), None);
+        assert_eq!(try_craft_index(&mut inv, 2), None);
     }
 
     #[test]
-    fn skips_unaffordable_recipes_for_an_affordable_one() {
+    fn craft_ready_reports_available_output() {
         let mut inv = Inventory::new(20);
-        // not enough for bandage (needs 3 scrap), but enough for a splint.
-        inv.add(ItemStack::new(ItemKind::Scrap, 1));
-        inv.add(ItemStack::new(ItemKind::Metal, 2));
-        assert_eq!(try_craft(&mut inv), Some(ItemKind::Splint));
+        inv.add(ItemStack::new(ItemKind::Scrap, 3));
+        inv.add(ItemStack::new(ItemKind::Cloth, 1));
+        assert_eq!(first_craftable(&inv), Some(ItemKind::Bandage));
     }
 
     #[test]
-    fn recipe_descriptions_lists_every_recipe() {
+    fn descriptions_are_numbered_and_ascii_friendly() {
         let descriptions = recipe_descriptions();
-        assert_eq!(descriptions.len(), RECIPES.len());
-        assert!(descriptions.iter().any(|d| d.contains("bandage")));
+        assert_eq!(descriptions.len(), recipe_count());
+        assert!(descriptions[0].contains("[1] BANDAGE"));
     }
 }

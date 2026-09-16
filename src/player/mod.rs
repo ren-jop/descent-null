@@ -1,14 +1,14 @@
-//! Player spawn, camera follow (with landing-triggered shake), nametag,
-//! spawn-hint timer, and reset.
+//! Player spawn, camera follow, lightweight character animation and run reset.
 
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use rand::Rng;
 
 use crate::body::Body;
-use crate::items::PlayerInventory;
+use crate::items::{PlayerInventory, SelectedSlot};
 use crate::physics::{CharacterControllerBundle, LandingImpact};
 use crate::survival::Survival;
+use crate::ui::LeaderboardState;
 use crate::world::RunStats;
 
 pub struct PlayerPlugin;
@@ -22,11 +22,13 @@ impl Plugin for PlayerPlugin {
             .add_systems(
                 Update,
                 (
+                    animate_player_visual,
+                    animate_bleeding,
+                    update_dehydration_vision,
                     follow_camera,
                     add_shake_on_landing,
                     apply_camera_shake,
                     follow_camera_with_vignette,
-                    follow_nametag,
                     tick_spawn_hint,
                     reset_player,
                 )
@@ -35,73 +37,38 @@ impl Plugin for PlayerPlugin {
     }
 }
 
-#[derive(Component)]
-pub struct Player;
+#[derive(Component)] pub struct Player;
+#[derive(Component)] pub struct FollowCamera;
+#[derive(Component)] struct PlayerVisual;
+#[derive(Component)] struct BleedPulse;
+#[derive(Component)] struct Vignette;
 
-#[derive(Component)]
-pub struct FollowCamera;
+const HINT_SECONDS: f32 = 7.0;
+const VISUAL_BASE_Y: f32 = 6.0;
+const THIRST_VISION_START: f32 = 0.50;
+const MIN_VIGNETTE_SCALE: f32 = 0.62;
 
-#[derive(Component)]
-struct Vignette;
-
-#[derive(Component)]
-struct Nametag;
-
-/// how long the on-screen control hints stay visible after a (re)spawn.
-const HINT_SECONDS: f32 = 6.0;
-
-/// seconds left to show the "how to play" hint. counts down to 0; ui
-/// reads this to decide whether to show it. reset to HINT_SECONDS on
-/// every respawn (and starts at HINT_SECONDS on first spawn too).
 #[derive(Resource)]
 pub struct SpawnHint(pub f32);
-
-impl Default for SpawnHint {
-    fn default() -> Self {
-        Self(HINT_SECONDS)
-    }
-}
+impl Default for SpawnHint { fn default() -> Self { Self(HINT_SECONDS) } }
 
 const SPAWN: Vec3 = Vec3::new(-420.0, 40.0, 0.0);
-const NAMETAG_OFFSET: f32 = 30.0;
-const CAMERA_Y_OFFSET: f32 = 48.0;
+const CAMERA_Y_OFFSET: f32 = 58.0;
 
-/// the camera's smoothed target position, tracked separately from the
-/// actual rendered Transform. apply_camera_shake writes
-/// `position + jitter` into the real Transform every frame instead of
-/// jittering the Transform directly — otherwise next frame's follow-lerp
-/// would start from an already-shaken position and the offset would
-/// partially compound/drift instead of settling cleanly.
-#[derive(Resource)]
-struct CameraFollow {
-    position: Vec3,
-}
-
+#[derive(Resource)] struct CameraFollow { position: Vec3 }
 impl Default for CameraFollow {
-    fn default() -> Self {
-        Self { position: Vec3::new(SPAWN.x, SPAWN.y + CAMERA_Y_OFFSET, 0.0) }
-    }
+    fn default() -> Self { Self { position: Vec3::new(SPAWN.x, SPAWN.y + CAMERA_Y_OFFSET, 0.0) } }
 }
 
-/// 0..1 "how much screen shake right now", decaying over time. bumped by
-/// hard landings (see add_shake_on_landing).
-#[derive(Resource, Default)]
-struct CameraShake {
-    trauma: f32,
-}
-
+#[derive(Resource, Default)] struct CameraShake { trauma: f32 }
 const SHAKE_DECAY_PER_SEC: f32 = 1.4;
 const MAX_SHAKE_OFFSET: f32 = 18.0;
 
 fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Player,
-        Sprite {
-            image: asset_server.load("sprites/player.png"),
-            custom_size: Some(Vec2::new(25.0, 40.0)),
-            ..default()
-        },
         Transform::from_translation(SPAWN),
+        Visibility::default(),
         CharacterControllerBundle::new(Collider::capsule(12.5, 20.0)),
         Friction::ZERO.with_combine_rule(CoefficientCombine::Min),
         Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
@@ -111,66 +78,118 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
         Body::default(),
         Survival::default(),
         PlayerInventory::default(),
-    ));
+    )).with_children(|player| {
+        player.spawn((
+            PlayerVisual,
+            Transform::from_xyz(0.0, VISUAL_BASE_Y, 0.0),
+            Visibility::default(),
+        )).with_children(|visual| {
+            visual.spawn((
+                BleedPulse,
+                Sprite::from_color(Color::srgba(0.75, 0.05, 0.04, 0.0), Vec2::new(36.0, 58.0)),
+                Transform::from_xyz(0.0, 1.0, 0.55),
+            ));
+            visual.spawn((Sprite::from_color(Color::srgb(0.19, 0.22, 0.24), Vec2::new(22.0, 25.0)), Transform::from_xyz(0.0, 0.0, 0.2)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.12, 0.14, 0.15), Vec2::new(7.0, 19.0)), Transform::from_xyz(-13.0, 0.0, 0.1)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.72, 0.58, 0.43), Vec2::new(15.0, 13.0)), Transform::from_xyz(0.0, 18.0, 0.2)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.70, 0.56, 0.22), Vec2::new(18.0, 7.0)), Transform::from_xyz(0.0, 25.0, 0.3)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.96, 0.88, 0.54), Vec2::new(5.0, 5.0)), Transform::from_xyz(6.0, 26.0, 0.4)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)), Transform::from_xyz(-6.0, -20.0, 0.2)));
+            visual.spawn((Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)), Transform::from_xyz(6.0, -20.0, 0.2)));
+        });
+    });
 
     commands.spawn((Camera2d, FollowCamera, Transform::from_xyz(SPAWN.x, SPAWN.y + CAMERA_Y_OFFSET, 0.0)));
-
-    // atmosphere: a large soft vignette that rides on the camera, always
-    // centered on screen, drawn above everything else.
     commands.spawn((
         Vignette,
-        Sprite {
-            image: asset_server.load("sprites/vignette.png"),
-            custom_size: Some(Vec2::splat(1800.0)),
-            ..default()
-        },
+        Sprite { image: asset_server.load("sprites/vignette.png"), custom_size: Some(Vec2::splat(1800.0)), ..default() },
         Transform::from_xyz(SPAWN.x, SPAWN.y, 50.0),
     ));
+}
 
-    // world-space nametag, floating above the character.
-    commands.spawn((
-        Nametag,
-        Text2d::new("Player One"),
-        TextFont { font_size: 14.0, ..default() },
-        TextColor(Color::srgb(0.92, 0.90, 0.84)),
-        Transform::from_xyz(SPAWN.x, SPAWN.y + NAMETAG_OFFSET, 1.0),
-    ));
+fn animate_player_visual(
+    time: Res<Time>,
+    player: Query<&LinearVelocity, With<Player>>,
+    mut visual: Query<&mut Transform, With<PlayerVisual>>,
+) {
+    let (Ok(velocity), Ok(mut visual)) = (player.single(), visual.single_mut()) else { return; };
+    let moving = velocity.x.abs() > 20.0;
+    let facing = if velocity.x > 20.0 {
+        1.0
+    } else if velocity.x < -20.0 {
+        -1.0
+    } else if visual.scale.x < 0.0 {
+        -1.0
+    } else {
+        1.0
+    };
+
+    visual.scale = Vec3::new(facing, 1.0, 1.0);
+    if moving {
+        let phase = time.elapsed_secs() * 11.0;
+        visual.translation.y = VISUAL_BASE_Y + phase.sin().abs() * 1.4;
+        visual.rotation = Quat::from_rotation_z(phase.sin() * 0.035 * facing);
+    } else {
+        visual.translation.y = VISUAL_BASE_Y;
+        visual.rotation = Quat::IDENTITY;
+    }
+}
+
+fn animate_bleeding(
+    time: Res<Time>,
+    player: Query<&Body, With<Player>>,
+    mut pulse: Query<(&mut Sprite, &mut Transform), With<BleedPulse>>,
+) {
+    let (Ok(body), Ok((mut sprite, mut transform))) = (player.single(), pulse.single_mut()) else { return; };
+    if body.0.total_bleed_rate() > 0.0005 {
+        let wave = 0.5 + 0.5 * (time.elapsed_secs() * 6.0).sin();
+        sprite.color = Color::srgba(0.82, 0.06, 0.04, 0.06 + wave * 0.14);
+        transform.scale = Vec3::splat(1.0 + wave * 0.06);
+    } else {
+        sprite.color = Color::srgba(0.82, 0.06, 0.04, 0.0);
+        transform.scale = Vec3::ONE;
+    }
+}
+
+fn update_dehydration_vision(
+    time: Res<Time>,
+    player: Query<&Survival, With<Player>>,
+    mut vignette: Query<(&mut Sprite, &mut Transform), With<Vignette>>,
+) {
+    let (Ok(survival), Ok((mut sprite, mut transform))) = (player.single(), vignette.single_mut()) else { return; };
+    let thirst = survival.0.thirst();
+    let severity = if thirst >= THIRST_VISION_START {
+        0.0
+    } else {
+        (1.0 - thirst / THIRST_VISION_START).clamp(0.0, 1.0)
+    };
+
+    let mut scale = 1.0 - (1.0 - MIN_VIGNETTE_SCALE) * severity;
+    if thirst < 0.12 {
+        scale -= 0.015 * (time.elapsed_secs() * 4.5).sin().abs();
+    }
+    transform.scale = Vec3::splat(scale.max(MIN_VIGNETTE_SCALE - 0.02));
+    sprite.color = Color::srgba(0.90, 0.94, 1.0, 0.78 + 0.22 * severity);
 }
 
 fn follow_camera(time: Res<Time>, player: Query<&Transform, With<Player>>, mut follow: ResMut<CameraFollow>) {
-    let Ok(player) = player.single() else {
-        return;
-    };
-    let dt = time.delta_secs();
+    let Ok(player) = player.single() else { return; };
     let target = Vec3::new(player.translation.x, player.translation.y + CAMERA_Y_OFFSET, 0.0);
-    let blend = 1.0 - (-6.0 * dt).exp();
+    let blend = 1.0 - (-6.0 * time.delta_secs()).exp();
     follow.position = follow.position.lerp(target, blend);
 }
 
-/// hard landings punch the camera — a bit of physical feedback for the
-/// exact moment that also causes real damage, per the "make it feel more
-/// impactful" direction. severity is already 0..1 (see physics::landing).
 fn add_shake_on_landing(mut events: MessageReader<LandingImpact>, mut shake: ResMut<CameraShake>) {
-    for impact in events.read() {
-        shake.trauma = (shake.trauma + impact.severity * 0.7).min(1.0);
-    }
+    for impact in events.read() { shake.trauma = (shake.trauma + impact.severity * 0.7).min(1.0); }
 }
 
 fn apply_camera_shake(
-    time: Res<Time>,
-    follow: Res<CameraFollow>,
-    mut shake: ResMut<CameraShake>,
+    time: Res<Time>, follow: Res<CameraFollow>, mut shake: ResMut<CameraShake>,
     mut camera: Query<&mut Transform, With<FollowCamera>>,
 ) {
     shake.trauma = (shake.trauma - SHAKE_DECAY_PER_SEC * time.delta_secs()).max(0.0);
-    let Ok(mut camera) = camera.single_mut() else {
-        return;
-    };
-    if shake.trauma <= 0.0 {
-        camera.translation = follow.position;
-        return;
-    }
-    // eased falloff — shake feels punchy at first, tapers quickly.
+    let Ok(mut camera) = camera.single_mut() else { return; };
+    if shake.trauma <= 0.0 { camera.translation = follow.position; return; }
     let power = shake.trauma * shake.trauma;
     let mut rng = rand::thread_rng();
     let jitter = Vec3::new(
@@ -185,60 +204,31 @@ fn follow_camera_with_vignette(
     camera: Query<&Transform, With<FollowCamera>>,
     mut vignette: Query<&mut Transform, (With<Vignette>, Without<FollowCamera>)>,
 ) {
-    let Ok(camera) = camera.single() else {
-        return;
-    };
-    let Ok(mut vignette) = vignette.single_mut() else {
-        return;
-    };
+    let (Ok(camera), Ok(mut vignette)) = (camera.single(), vignette.single_mut()) else { return; };
     vignette.translation.x = camera.translation.x;
     vignette.translation.y = camera.translation.y;
 }
 
-fn follow_nametag(
-    player: Query<&Transform, (With<Player>, Without<Nametag>)>,
-    mut nametag: Query<&mut Transform, With<Nametag>>,
-) {
-    let Ok(player) = player.single() else {
-        return;
-    };
-    let Ok(mut nametag) = nametag.single_mut() else {
-        return;
-    };
-    nametag.translation.x = player.translation.x;
-    nametag.translation.y = player.translation.y + NAMETAG_OFFSET;
-}
-
 fn tick_spawn_hint(time: Res<Time>, mut hint: ResMut<SpawnHint>) {
-    if hint.0 > 0.0 {
-        hint.0 = (hint.0 - time.delta_secs()).max(0.0);
-    }
+    if hint.0 > 0.0 { hint.0 = (hint.0 - time.delta_secs()).max(0.0); }
 }
 
 fn reset_player(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut query: Query<
-        (&mut Transform, &mut LinearVelocity, &mut Body, &mut Survival, &mut PlayerInventory),
-        With<Player>,
-    >,
-    mut stats: ResMut<RunStats>,
-    mut hint: ResMut<SpawnHint>,
-    mut follow: ResMut<CameraFollow>,
-    mut shake: ResMut<CameraShake>,
+    leaderboard: Res<LeaderboardState>,
+    mut query: Query<(&mut Transform, &mut LinearVelocity, &mut Body, &mut Survival, &mut PlayerInventory), With<Player>>,
+    mut stats: ResMut<RunStats>, mut selected: ResMut<SelectedSlot>, mut hint: ResMut<SpawnHint>,
+    mut follow: ResMut<CameraFollow>, mut shake: ResMut<CameraShake>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyR) {
-        return;
-    }
-    let Ok((mut transform, mut velocity, mut body, mut survival, mut inventory)) = query.single_mut()
-    else {
-        return;
-    };
+    if leaderboard.name_entry || !keyboard.just_pressed(KeyCode::KeyR) { return; }
+    let Ok((mut transform, mut velocity, mut body, mut survival, mut inventory)) = query.single_mut() else { return; };
     transform.translation = SPAWN;
     *velocity = LinearVelocity::ZERO;
     body.0.clear();
     survival.0.reset();
     *inventory = PlayerInventory::default();
     *stats = RunStats::default();
+    selected.0 = 0;
     hint.0 = HINT_SECONDS;
     follow.position = Vec3::new(SPAWN.x, SPAWN.y + CAMERA_Y_OFFSET, 0.0);
     shake.trauma = 0.0;
