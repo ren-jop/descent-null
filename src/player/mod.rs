@@ -8,6 +8,7 @@ use crate::body::Body;
 use crate::items::{PlayerInventory, SelectedSlot};
 use crate::physics::{CharacterControllerBundle, LandingImpact};
 use crate::survival::Survival;
+use crate::ui::LeaderboardState;
 use crate::world::RunStats;
 
 pub struct PlayerPlugin;
@@ -43,9 +44,6 @@ impl Plugin for PlayerPlugin {
 #[derive(Component)] struct Vignette;
 
 const HINT_SECONDS: f32 = 7.0;
-/// The physics body was already correct; only the rendered explorer sat too
-/// low inside it. Raising the child visual keeps the exact controller/collider
-/// while putting the boots visually on top of platform tiles.
 const VISUAL_BASE_Y: f32 = 6.0;
 const THIRST_VISION_START: f32 = 0.50;
 const MIN_VIGNETTE_SCALE: f32 = 0.62;
@@ -109,9 +107,6 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 }
 
-/// Restore the earlier walk presentation exactly: same 11 Hz pacing, same
-/// bob amount, same slight lean and the same left/right flip. The only visual
-/// change is VISUAL_BASE_Y, which corrects platform clipping.
 fn animate_player_visual(
     time: Res<Time>,
     player: Query<&LinearVelocity, With<Player>>,
@@ -156,9 +151,6 @@ fn animate_bleeding(
     }
 }
 
-/// Thirst owns a visual consequence instead of another movement penalty.
-/// Below 50% hydration the cave vignette gradually closes in; below roughly
-/// 20% the narrowing is unmistakable, matching the FIELD LOG warning.
 fn update_dehydration_vision(
     time: Res<Time>,
     player: Query<&Survival, With<Player>>,
@@ -223,11 +215,12 @@ fn tick_spawn_hint(time: Res<Time>, mut hint: ResMut<SpawnHint>) {
 
 fn reset_player(
     keyboard: Res<ButtonInput<KeyCode>>,
+    leaderboard: Res<LeaderboardState>,
     mut query: Query<(&mut Transform, &mut LinearVelocity, &mut Body, &mut Survival, &mut PlayerInventory), With<Player>>,
     mut stats: ResMut<RunStats>, mut selected: ResMut<SelectedSlot>, mut hint: ResMut<SpawnHint>,
     mut follow: ResMut<CameraFollow>, mut shake: ResMut<CameraShake>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyR) { return; }
+    if leaderboard.name_entry || !keyboard.just_pressed(KeyCode::KeyR) { return; }
     let Ok((mut transform, mut velocity, mut body, mut survival, mut inventory)) = query.single_mut() else { return; };
     transform.translation = SPAWN;
     *velocity = LinearVelocity::ZERO;
