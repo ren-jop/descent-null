@@ -1,5 +1,7 @@
-//! bevy wiring for items: the player's inventory, world pickups, and the
-//! proximity-based collection system.
+//! Bevy wiring for inventory, pickups, selected-item use and crafting.
+//! The main rule here is clarity: number keys select a hotbar slot, F uses
+//! that exact item, and C opens a small recipe menu instead of crafting an
+//! unexplained item automatically.
 
 use bevy::prelude::*;
 
@@ -11,10 +13,8 @@ use super::craft;
 use super::inventory::Inventory;
 use super::item::{ItemKind, ItemStack};
 
-// default carry-weight cap. the doc calls for a real "can't carry
-// everything" tradeoff, so this is deliberately tight, not generous.
 const DEFAULT_CAPACITY: u32 = 12;
-const PICKUP_RADIUS: f32 = 36.0;
+const PICKUP_RADIUS: f32 = 40.0;
 const EVENT_DISPLAY_SECONDS: f32 = 3.0;
 
 impl Default for Inventory {
@@ -29,8 +29,15 @@ pub struct PlayerInventory(pub Inventory);
 #[derive(Component)]
 pub struct Pickup(pub ItemStack);
 
-/// a brief contextual notification — pickups, item use, crafting, combat.
-/// shown as a fading toast, not a permanent HUD line (see ui::update_event_toast).
+#[derive(Resource, Default)]
+pub struct SelectedSlot(pub usize);
+
+#[derive(Resource, Default)]
+pub struct CraftingMenu {
+    pub open: bool,
+}
+
+/// A brief contextual notification: pickups, item use, crafting and combat.
 #[derive(Resource, Default)]
 pub struct LastEvent {
     pub text: String,
@@ -49,7 +56,19 @@ pub struct ItemsPlugin;
 impl Plugin for ItemsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LastEvent>()
-            .add_systems(Update, (collect_pickups, use_supplies, craft_item, tick_last_event));
+            .init_resource::<SelectedSlot>()
+            .init_resource::<CraftingMenu>()
+            .add_systems(
+                Update,
+                (
+                    collect_pickups,
+                    inventory_controls,
+                    use_selected_item,
+                    crafting_controls,
+                    tick_last_event,
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -78,65 +97,162 @@ fn collect_pickups(
             continue;
         }
         if inventory.0.add(pickup.0) {
-            last.show(format!("picked up {} {}", pickup.0.quantity, pickup.0.kind.label()));
+            last.show(format!(
+                "Picked up {} x{}",
+                pickup.0.kind.label(),
+                pickup.0.quantity
+            ));
             commands.entity(entity).despawn();
         } else {
-            last.show(format!("inventory full — can't carry {}", pickup.0.kind.label()));
+            last.show(format!(
+                "Too heavy: {} (drop/use something first)",
+                pickup.0.kind.label()
+            ));
         }
     }
 }
 
-/// `F` — use the single most relevant supply for the player's current
-/// problem: eat/drink if low, bandage active bleeding, splint a fracture,
-/// or medkit if hurt at all. one action, no item-picker menu yet.
-fn use_supplies(
+fn digit_pressed(keyboard: &ButtonInput<KeyCode>) -> Option<usize> {
+    let keys = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ];
+    keys.iter().position(|key| keyboard.just_pressed(*key))
+}
+
+fn inventory_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
+    crafting: Res<CraftingMenu>,
+    mut selected: ResMut<SelectedSlot>,
+    inventory: Query<&PlayerInventory>,
+    mut last: ResMut<LastEvent>,
+) {
+    if crafting.open {
+        return;
+    }
+    let Some(slot) = digit_pressed(&keyboard) else {
+        return;
+    };
+    selected.0 = slot;
+    if let Ok(inventory) = inventory.single() {
+        if let Some(stack) = inventory.0.stacks().get(slot) {
+            last.show(format!("Selected {}", stack.kind.label()));
+        } else {
+            last.show(format!("Slot {} is empty", slot + 1));
+        }
+    }
+}
+
+/// F uses exactly the selected hotbar stack. This is slower than the old
+/// automatic "best item" action, but much easier to learn and reason about.
+fn use_selected_item(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    crafting: Res<CraftingMenu>,
+    selected: Res<SelectedSlot>,
     mut query: Query<(&mut PlayerInventory, &mut Body, &mut Survival)>,
     mut last: ResMut<LastEvent>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyF) {
+    if crafting.open || !keyboard.just_pressed(KeyCode::KeyF) {
         return;
     }
     let Ok((mut inventory, mut body, mut survival)) = query.single_mut() else {
         return;
     };
-    if survival.0.hunger() < 0.5 && inventory.0.remove(ItemKind::Food, 1) > 0 {
-        survival.0.eat(0.4);
-        last.show("ate food");
-    } else if survival.0.thirst() < 0.5 && inventory.0.remove(ItemKind::Water, 1) > 0 {
-        survival.0.drink(0.4);
-        last.show("drank water");
-    } else if body.0.total_bleed_rate() > 0.0 && inventory.0.remove(ItemKind::Bandage, 1) > 0 {
-        body.0.treat_worst_bleeding();
-        last.show("used bandage");
-    } else if body.0.has_untreated_leg_fracture() && inventory.0.remove(ItemKind::Splint, 1) > 0 {
-        body.0.treat_fracture();
-        last.show("used splint");
-    } else if (body.0.blood_volume() < 0.9 || body.0.wound_count() > 0)
-        && inventory.0.remove(ItemKind::Medkit, 1) > 0
-    {
-        body.0.heal_blood_volume(0.35);
-        body.0.treat_pain();
-        last.show("used medkit");
-    } else {
-        last.show("nothing useful to use right now");
+    let Some(stack) = inventory.0.stacks().get(selected.0).copied() else {
+        last.show("Selected slot is empty");
+        return;
+    };
+
+    match stack.kind {
+        ItemKind::Food => {
+            inventory.0.remove(ItemKind::Food, 1);
+            survival.0.eat(0.4);
+            last.show("Ate food - hunger restored");
+        }
+        ItemKind::Water => {
+            inventory.0.remove(ItemKind::Water, 1);
+            survival.0.drink(0.4);
+            last.show("Drank water - thirst restored");
+        }
+        ItemKind::Bandage => {
+            if body.0.total_bleed_rate() <= 0.0 {
+                last.show("No active bleeding to bandage");
+            } else {
+                inventory.0.remove(ItemKind::Bandage, 1);
+                body.0.treat_worst_bleeding();
+                last.show("Bandaged the worst active bleed");
+            }
+        }
+        ItemKind::Splint => {
+            if !body.0.has_untreated_leg_fracture() {
+                last.show("No untreated leg fracture");
+            } else {
+                inventory.0.remove(ItemKind::Splint, 1);
+                body.0.treat_fracture();
+                last.show("Splinted fracture - movement restored");
+            }
+        }
+        ItemKind::Medkit => {
+            if body.0.blood_volume() >= 0.99 && body.0.wound_count() == 0 {
+                last.show("You do not need a medkit right now");
+            } else {
+                inventory.0.remove(ItemKind::Medkit, 1);
+                body.0.heal_blood_volume(0.35);
+                body.0.treat_pain();
+                last.show("Used medkit - blood restored and pain treated");
+            }
+        }
+        ItemKind::Scrap | ItemKind::Cloth | ItemKind::Metal | ItemKind::Battery => {
+            last.show("Crafting material - press C to see recipes");
+        }
+        ItemKind::Cargo => {
+            last.show("Mission cargo is handled by the objective system");
+        }
     }
 }
 
-/// `C` — craft the first recipe you can afford. see items::craft.
-fn craft_item(
+fn crafting_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut query: Query<&mut PlayerInventory>,
+    mut crafting: ResMut<CraftingMenu>,
+    mut inventory: Query<&mut PlayerInventory>,
     mut last: ResMut<LastEvent>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyC) {
+    if keyboard.just_pressed(KeyCode::KeyC) {
+        crafting.open = !crafting.open;
+        if crafting.open {
+            last.show("Crafting opened - choose recipe 1, 2 or 3");
+        }
         return;
     }
-    let Ok(mut inventory) = query.single_mut() else {
+    if crafting.open && keyboard.just_pressed(KeyCode::Escape) {
+        crafting.open = false;
+        return;
+    }
+    if !crafting.open {
+        return;
+    }
+    let Some(index) = digit_pressed(&keyboard) else {
         return;
     };
-    match craft::try_craft(&mut inventory.0) {
-        Some(kind) => last.show(format!("crafted {}", kind.label())),
-        None => last.show("not enough materials to craft anything"),
+    if index >= craft::recipe_count() {
+        return;
+    }
+    let Ok(mut inventory) = inventory.single_mut() else {
+        return;
+    };
+    if !craft::can_craft(&inventory.0, index) {
+        last.show(format!("Missing materials for recipe {}", index + 1));
+        return;
+    }
+    match craft::try_craft_index(&mut inventory.0, index) {
+        Some(kind) => last.show(format!("Crafted {}", kind.label())),
+        None => last.show("Could not craft that item"),
     }
 }
