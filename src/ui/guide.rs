@@ -22,6 +22,7 @@ pub struct GuidePlugin;
 impl Plugin for GuidePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GuideState>()
+            .add_systems(PreUpdate, consume_guide_restart)
             .add_systems(Startup, spawn_guide_ui)
             .add_systems(Update, (guide_controls, update_guide_ui).chain());
     }
@@ -37,6 +38,15 @@ fn pixel_border() -> Color {
 
 fn pixel_highlight() -> Color {
     Color::srgb(0.80, 0.67, 0.34)
+}
+
+fn consume_guide_restart(
+    guide: Res<GuideState>,
+    mut keyboard: ResMut<ButtonInput<KeyCode>>,
+) {
+    if guide.open && keyboard.just_pressed(KeyCode::KeyR) {
+        keyboard.clear_just_pressed(KeyCode::KeyR);
+    }
 }
 
 fn spawn_guide_ui(mut commands: Commands) {
@@ -148,9 +158,6 @@ fn guide_controls(
     if !keyboard.just_pressed(KeyCode::KeyG) {
         return;
     }
-
-    // The result/name-entry screen owns input after extraction. This avoids G
-    // stealing focus while an expo player is typing their leaderboard name.
     if stats.extracted || leaderboard.name_entry {
         return;
     }
