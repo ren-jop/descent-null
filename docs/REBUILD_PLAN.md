@@ -1,127 +1,267 @@
-# Descent: Null — rebuild plan
+# Descent: Null — gameplay-first roadmap
 
-Internal architecture assessment after a full-repo audit. Original identity only; systemic inspiration, not a content clone.
+This document supersedes the original engine-rewrite plan. The engine swap is done: the project now runs on **Bevy 0.17 + Avian 2D**, has continuous physics, wound/cardio simulation, hunger/thirst/stamina, inventory/crafting, procedural cave runs, an enemy, HUD, death/reset flow, and a concrete cargo objective.
+
+The next problem is no longer “build an engine foundation.” It is **turn the existing systems into an understandable, intentional game**.
+
+## Product direction
+
+Descent: Null should feel like a physical survival descent where the player can always answer three questions:
+
+1. **What am I trying to do?**
+2. **What is happening to me and why?**
+3. **What can I do about it?**
+
+Simulation depth is useful only when the player can read it and make decisions from it. New systems should therefore ship with their feedback, UI, audio, and player-facing purpose — not as hidden numbers first and polish later.
+
+The core loop is:
+
+`explore → notice risk → collect supplies → descend → get pressured/injured → diagnose → treat/craft → decide whether to push deeper → recover the cargo → complete the run`
 
 ## Current architecture
 
-The prototype is a **discrete grid simulation** with two front ends, not a physics game.
-
-- **Engine:** none. Library crate (`src/*.rs`) plus `macroquad` window (`src/main.rs`) and a leftover `ratatui` terminal binary (`src/bin/tui.rs`).
-- **Loop:** front end polls WASD, calls `GameState::try_move(dx, dy)` one tile at a time, then `GameState::tick()` every 2 seconds for survival/body/AI.
-- **World:** 40×24 cellular-automata cave of enum tiles (`Empty` / `Wall` / `Water` / `Hazard` / `Resource` / `Extraction`). Flood-fill checks one start→extraction path.
-- **Player:** integer `(x, y)` plus `BodyState`, `SurvivalState`, `Inventory`, three float attributes, integer `fall_distance`.
-- **Physics:** none. Gravity, acceleration, collision, slopes, and landing velocity do not exist. “Fall damage” counts consecutive down-tile steps.
-- **Entities:** one `Enemy` struct with Manhattan chase, contact injury, and a separate `health` float.
-- **Inventory:** `Vec<ItemStack>` with weight + stack caps. No hands, no nested containers, no world objects.
-- **Items / crafting:** match-arm `ItemId` / `RecipeId`. Two recipes. No liquids, no properties, no duration.
-- **Body:** six regions with floats (`condition`, `bleeding`, `pain`, `infection`) plus a boolean fracture. No wound objects. Cardio is four floats ticked monolithically inside `BodyState::tick`.
-- **UI:** colored grid + status bars. No body inspection panel, no drag inventory.
-- **Assets / data files:** none. Everything is hard-coded Rust.
-- **Save:** none.
-- **Tests:** 34 unit tests that prove the *grid* prototype’s own rules. They are not the target design.
-
-## Current problems
-
-The game drifted into “Roguelike ASCII / colored tiles with status bars.” That is the opposite of a physical survival simulation.
-
-1. Movement is grid navigation. There is no weight, inertia, coyote time, slopes, or landing velocity.
-2. Injury is “subtract condition on this enum.” There are no wounds, no impact position, no force.
-3. Cardiovascular state exists but is a fake HP cousin: one tick function, no events, no visual/audio coupling, no location-specific impacts.
-4. Survival bars decay on a 2s cadence and barely change movement (a speed multiplier on grid steps).
-5. Inventory is a bag of IDs, not a physical carrying problem.
-6. World generation is a tiny 2D maze. No shafts, chambers, lighting, or continuous space.
-7. Enemies are “step toward player, overlap = damage.” Separate enemy HP vs player body.
-8. Extraction tile *wins the run*. The intended loop is descend / retreat / die / learn.
-9. Macroquad GUI is a skin on the same grid loop. It cannot host real physics.
-10. One giant `GameState` update path instead of events between systems.
-
-## Systems worth keeping (ideas, not files)
-
-Preserve these *intents* and some numeric instincts. Do **not** keep the grid types as the runtime.
-
-| Intent | Why it is still valid |
-| --- | --- |
-| Six named body regions | Matches the target physiology |
-| Cardio fields (volume, HR, shock, consciousness) | Right *categories*; need a real resolver |
-| Survival categories (hunger, thirst, stamina, temp, fatigue, mood) | Right *categories*; must actually couple to physics |
-| Strength / resilience / intelligence | Keep as the three attributes |
-| Deterministic seed + connectivity check | Required for procedural caves (rewrite the generator) |
-| Transactional craft (all-or-nothing consume) | Keep the rule when recipes become data |
-| Original name, world, items, creatures | Non-negotiable originality |
-| Test-the-simulation culture | Keep; rewrite tests to match new architecture |
-
-## Systems that should be rewritten
-
-- `world.rs` cave generator — keep CA/flood-fill *ideas*, output colliders + layers, not 40×24 glyphs.
-- `body.rs` — replace region floats with wound lists + evented cardio.
-- `survival.rs` — same fields, driven by dt and events, feeding movement/physics.
-- `inventory.rs` / `crafting.rs` — physical slots, nested containers, data-driven defs.
-- `entities.rs` — perception FSM, no fake HP.
-- `player.rs` / `game.rs` — ECS entities + events, not one struct.
-- Front ends — Bevy 2D + Avian physics. Terminal UI is not the product.
-
-## Systems that should be removed
-
-- Tile-step `try_move` and integer `fall_distance`.
-- Macroquad and ratatui/crossterm binaries as the game.
-- Extraction-as-win condition.
-- Enemy `health` as a second HP system.
-- Hard-coded `ItemId` match arms as the long-term item architecture.
-- The 34 grid tests as a compatibility target (replace with tests for the new sim).
-
-## Proposed architecture
-
-Engine: **Bevy 0.17** + **avian2d 0.4** (ECS, fixed physics step, events/messages).
-
-```
-src/
-  main.rs                 -- app entry
-  lib.rs
-  game/                   -- plugins, run state, schedules
-  player/                 -- controller wiring, camera, spawn
-  physics/                -- jump assist, landing, character controller
-  world/                  -- arenas now; procedural caves later
-  generation/             -- (M5)
-  entities/ ai/ combat/   -- (M7)
-  items/ inventory/       -- (M4)
-  crafting/ medical/      -- (M6)
-  survival/               -- (M3)
-  ui/ audio/ save/ debug/ -- progressive
+```text
+physics ──────────────► body (impact, force, wounds)
+body ─────────────────► physics (KO, fracture movement limits)
+survival ─────────────► physics (stamina/exhaustion)
+inventory ────────────► treatment / crafting
+world/generation ─────► colliders, loot, enemies, objective
+ai/combat ────────────► wounds ─► body
+ui/audio ─────────────► reads simulation truth; never owns it
+save ─────────────────► future
 ```
 
-Communication is **event-driven**. Example for later milestones:
+Keep this dependency direction. UI may explain state but must not become the source of state.
 
-`LandingImpact` → damage resolver → `WoundCreated` → bleeding → `BloodLost` → cardiovascular → `ConsciousnessChanged` → movement penalties.
+## Design rules going forward
 
-Schedules stay split: physics (fixed), survival (dt), render, UI.
+- **No unexplained damage.** Blood/health loss must have a visible cause. Hunger and thirst should primarily create survival pressure through stamina/recovery, not silently masquerade as generic HP damage.
+- **No invisible objectives.** The active objective stays visible until completed.
+- **No mystery crafting.** Recipes must show ingredients, result, and why the result is useful.
+- **Readable before realistic.** A larger character, item, icon, or warning is preferable to technically accurate but unreadable presentation.
+- **One simulation truth.** Enemies and player damage should continue converging on wounds/body-state rather than parallel HP systems.
+- **Every feature needs a player decision.** Do not add temperature, darkness, infection, equipment, etc. until there is something meaningful the player can do in response.
+- **Death should teach.** Recaps should identify the cause and what the player could have done differently.
 
-## Implementation order
+---
 
-| Milestone | Playable when | Depends on |
-| --- | --- | --- |
-| **1. Player + physics** | Walk, jump, fall, land, camera, push objects, slopes | Engine swap |
-| **2. Body simulation** | Location-specific wounds, bleed, pain, fracture, cardio, KO, death | Landing/combat damage events from physics |
-| **3. Survival** | Hunger/thirst/fatigue/stamina/temp change movement and recovery | Body + dt |
-| **4. Inventory** | Hands, equipment, nested containers, weight | Physics objects in world |
-| **5. World** | Seeded caves, chambers, shafts, loot, 5 layers | Physics colliders + inventory spawn |
-| **6. Crafting + medical** | Timed treatment on a body part; recipes consume real items | Body + inventory |
-| **7. Enemies + hazards** | Perception AI, location damage, avoid-or-fight | Body + world + combat events |
-| **8. Polish** | HUD/panels, feedback architecture, death recap, save | All of the above |
+# Phase 2A — Gameplay clarity and repair
 
-Do not start the next milestone until the previous one is actually playable.
+**Status: active. This is the highest priority before adding more content.**
 
-## Dependencies between systems
+Playable target: a new player can understand the goal, HUD, inventory, crafting, injuries, death, and restart without reading source code or the README.
 
-```
-physics ──────────────► body (impact, force, location)
-physics ──────────────► inventory (world items, throw, drop)
-body ─────────────────► physics (limp, climb fail, KO)
-survival ─────────────► body (shock, infection, temperature)
-survival ─────────────► physics (stamina / hydration movement)
-inventory ────────────► physics (mass, throwables)
-inventory ────────────► medical / crafting
-world/generation ─────► physics colliders, loot, hazards
-ai/combat ────────────► damage events ─► body
-ui/audio ─────────────► reads all; never owns sim truth
-save ─────────────────► serializes player, world seed, containers, wounds
-```
+### Implement now
+
+- [x] Persistent cargo objective on the HUD.
+- [x] Fixed 9-slot inventory presentation.
+- [x] Recipe reference panel.
+- [x] Death overlay and run statistics.
+- [x] HUD reappears after death/restart rather than remaining hidden.
+- [x] Larger player sprite presentation without changing collision dimensions.
+- [x] Larger world pickups and cargo objective.
+- [x] Larger HUD, inventory slots, typography, and event messages.
+- [x] Label health/hunger/thirst/stamina instead of relying on icons alone.
+- [x] Show percentages on vitals.
+- [x] Explicitly show the cause of health loss (`BLEEDING`) and the treatment (`bandage`).
+- [x] Stop hunger/thirst from silently draining blood volume.
+- [x] Show crafting purpose alongside ingredients.
+- [x] Show inventory carry weight in the inventory header.
+- [x] Death recap explains critical blood loss rather than only saying “you died.”
+
+### Still needed in this phase
+
+- [ ] Replace the current placeholder/player sprite with a coherent final-resolution character sprite sheet.
+- [ ] Rework cave tile art so player, terrain, loot, enemies, and UI share one deliberate pixel-density/art-direction standard.
+- [ ] Add selected-slot highlighting and number-key selection so the fixed inventory becomes a real hotbar rather than only a status grid.
+- [ ] Split `F uses best supply` into deliberate item use once hotbar selection exists.
+- [ ] Replace `C crafts first affordable recipe` with recipe selection.
+- [ ] Add a compact body-status panel showing wound location/type when injured.
+- [ ] Add interaction prompts near pickups/objectives where ambiguity remains.
+- [ ] Add UI scale setting (e.g. 100/125/150%).
+- [ ] Test at common window sizes and ensure no overlap at 1280×720.
+
+**Exit condition:** a first-time player can state the objective, identify why health is falling, identify how to stop it, understand what materials are for, and restart after death with a fully restored HUD.
+
+---
+
+# Phase 2B — Inventory, treatment, and crafting decisions
+
+Playable target: inventory and medical care become choices rather than automatic helpers.
+
+### Inventory / hotbar
+
+- [ ] Persistent numbered hotbar (1–9).
+- [ ] Selected item highlight.
+- [ ] Item name + short purpose tooltip for selected slot.
+- [ ] Drop item / swap slot controls.
+- [ ] Clear stack and carry-weight feedback.
+- [ ] Backpack/full inventory screen only when needed; keep the hotbar visible during play.
+
+### Medical interaction
+
+- [ ] Body inspection screen with named regions.
+- [ ] Wound cards: region, wound type, bleeding, pain, treatment state.
+- [ ] Choose treatment and target instead of always treating “the worst” automatically.
+- [ ] Treatment duration with interruption from movement/damage.
+- [ ] Treatment feedback animation/audio.
+
+### Crafting
+
+- [ ] Recipe selection UI.
+- [ ] Craftable/unavailable visual state.
+- [ ] Ingredient counts (`owned / required`).
+- [ ] Result description and intended use.
+- [ ] Keep transactional all-or-nothing ingredient consumption.
+
+**Exit condition:** the player intentionally chooses an item, treatment, or recipe and understands its consequence before committing.
+
+---
+
+# Phase 3 — World purpose and navigation
+
+Playable target: the cave becomes a place to understand and make route decisions in, not only a stack of randomized platforms.
+
+- [ ] Distinct visual identity for each layer.
+- [ ] Landmark generation so runs have memorable locations.
+- [ ] Main route plus optional risk/reward branches.
+- [ ] Rest/safe pockets with lower enemy pressure.
+- [ ] Better cargo chamber presentation at the bottom.
+- [ ] Environmental storytelling props that do not require dialogue.
+- [ ] Improve procedural reachability checks beyond the current loose platform randomization.
+- [ ] Seed display/replay support for debugging and challenge runs.
+- [ ] Decide the longer-term run ending: cargo-at-bottom completion vs cargo recovery plus return-to-surface extraction.
+
+**Exit condition:** players can describe where they are, why they might detour, and what deeper layers change besides loot rarity.
+
+---
+
+# Phase 4 — Environmental survival mechanics
+
+Playable target: the environment creates readable hazards with preparation and counterplay.
+
+Add one hazard at a time. Each hazard needs **warning → consequence → countermeasure**.
+
+Recommended order:
+
+1. **Darkness / light**
+   - flashlight or lamp
+   - battery consumption
+   - darkness genuinely limits useful visibility
+   - visible battery state and low-power warning
+
+2. **Unstable terrain / rockfall**
+   - telegraphed warning
+   - impact wounds through the existing body system
+   - route choice / avoidance
+
+3. **Toxic pockets**
+   - visual/audio cue before exposure
+   - short-term stamina/consciousness pressure
+   - mask/filter or route avoidance
+
+4. **Temperature** only after equipment/inventory can support clothing or heat decisions.
+
+Do not add survival meters whose only behavior is “bar slowly falls.”
+
+---
+
+# Phase 5 — Enemy and combat depth
+
+Playable target: enemies create tactical choices beyond walking toward the player and dealing contact damage.
+
+- [ ] Perception states: idle / investigate / chase / disengage.
+- [ ] Sight and sound awareness.
+- [ ] Attack anticipation frames / telegraphs.
+- [ ] Distinct wound profiles by attack type.
+- [ ] Player weapons/tools with reach, recovery, and commitment.
+- [ ] Knockback and stagger through physics.
+- [ ] Avoidance/stealth as a valid alternative to combat.
+- [ ] Second enemy archetype only after the crawler is fully readable and fun.
+- [ ] Remove any remaining enemy-only HP abstractions when practical; converge on body/damage events.
+
+**Exit condition:** the player can predict enemy intent and choose fight, evade, or bypass.
+
+---
+
+# Phase 6 — Run structure and progression
+
+Playable target: repeated runs differ meaningfully and teach the player something.
+
+- [ ] Better death recap: direct wound chain / killer / final cause.
+- [ ] Run summary: deepest layer, survival time, cargo, enemies, treatments, crafted items.
+- [ ] Procedural events with clear risk/reward.
+- [ ] Rare discoveries / optional objectives.
+- [ ] Knowledge-based unlocks or discoveries rather than large permanent stat bonuses.
+- [ ] Difficulty knobs based on world pressure, not inflated enemy health.
+- [ ] Save/settings support.
+
+Avoid meta-progression that makes the simulation irrelevant by simply giving permanent health/damage upgrades.
+
+---
+
+# Phase 7 — Feel, audio, and accessibility
+
+This is not “final polish”; pieces of it should accompany every earlier phase. This phase is the comprehensive pass.
+
+- [ ] Footsteps by surface.
+- [ ] Landing sounds by severity.
+- [ ] Injury, bleeding, treatment, crafting, pickup, enemy, and cargo SFX.
+- [ ] Strong but restrained impact particles/screenshake.
+- [ ] Player animation set: idle, walk, airborne, hurt, treat, attack.
+- [ ] Enemy animation set.
+- [ ] Pixel-perfect texture filtering and consistent sprite scale.
+- [ ] Remappable controls.
+- [ ] UI scale.
+- [ ] Color-accessible warnings (never encode danger by color alone).
+- [ ] Reduced screenshake toggle.
+- [ ] Audio sliders.
+- [ ] Pause/settings menu.
+
+---
+
+# Phase 8 — Content expansion
+
+Only expand the catalogue after the loop above is readable and fun.
+
+- [ ] More cave modules / landmarks.
+- [ ] More item families.
+- [ ] More recipes with distinct strategic roles.
+- [ ] More enemy archetypes.
+- [ ] More environmental interactions.
+- [ ] Random events.
+- [ ] Optional narrative discoveries.
+
+The game should not become broader faster than it becomes clearer.
+
+---
+
+## Near-term implementation order
+
+Use this order for the next work sessions:
+
+1. **Hotbar selection + selected item usage**
+2. **Selectable crafting menu**
+3. **Body/wound inspection panel**
+4. **Character sprite + tile/art-direction pass**
+5. **Light/battery gameplay**
+6. **Crawler telegraphs/perception polish**
+7. **Layer landmarks + stronger procedural structure**
+8. **SFX + animation pass**
+
+Do not jump to additional enemies, temperature, infection, or large content packs before steps 1–4 are solid.
+
+## Testing priorities
+
+Keep pure simulation tests, but also add integration/regression tests where practical for player-facing bugs:
+
+- R reset restores body, survival, inventory, stats, cave, and HUD visibility.
+- Health does not decrease from hunger/thirst alone.
+- Active bleeding decreases blood volume and HUD reports bleeding.
+- Bandage stops ongoing bleeding.
+- Inventory never exceeds capacity.
+- Crafting consumes exactly the required ingredients.
+- Cargo completion cannot trigger from ordinary loot.
+- New cave generation places the player in a valid starting state.
+
+The guiding rule is simple: **a systemic game is only as deep as the decisions the player can actually understand.**
