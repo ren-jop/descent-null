@@ -4,7 +4,7 @@
 
 use super::cardio::Cardio;
 use super::region::BodyRegion;
-use super::wound::Wound;
+use super::wound::{Wound, WoundKind};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BodyState {
@@ -65,29 +65,27 @@ impl BodyState {
         self.cardio.heal(amount);
     }
 
-    /// Stops every currently active bleed. This is deliberately forgiving:
-    /// one bandage use should feel reliable instead of leaving an invisible
-    /// second bleed running in the background.
+    /// Stops every currently active bleed. This only treats the bleeding
+    /// symptom: it deliberately does not mark the underlying wound/fracture
+    /// as fully treated, so a bandage cannot replace a splint.
     pub fn treat_all_bleeding(&mut self) -> usize {
         let mut treated = 0;
         for wound in &mut self.wounds {
             if wound.bleed_rate > 0.0 {
                 wound.bleed_rate = 0.0;
-                wound.treated = true;
                 treated += 1;
             }
         }
         treated
     }
 
-    /// Compatibility helper for older callers/tests.
     pub fn treat_worst_bleeding(&mut self) -> bool {
         self.treat_all_bleeding() > 0
     }
 
     pub fn has_untreated_leg_fracture(&self) -> bool {
         self.wounds.iter().any(|w| {
-            w.kind == super::wound::WoundKind::Fracture
+            w.kind == WoundKind::Fracture
                 && matches!(w.region, BodyRegion::LeftLeg | BodyRegion::RightLeg)
                 && !w.treated
         })
@@ -97,7 +95,7 @@ impl BodyState {
         let target = self
             .wounds
             .iter_mut()
-            .find(|w| w.kind == super::wound::WoundKind::Fracture && !w.treated);
+            .find(|w| w.kind == WoundKind::Fracture && !w.treated);
         match target {
             Some(wound) => {
                 wound.treated = true;
@@ -107,12 +105,15 @@ impl BodyState {
         }
     }
 
+    /// Reduces pain without pretending a broken bone has been stabilised.
     pub fn treat_pain(&mut self) -> bool {
-        let target = self.wounds.iter_mut().find(|w| !w.treated && w.pain > 0.0);
+        let target = self.wounds.iter_mut().find(|w| w.pain > 0.0);
         match target {
             Some(wound) => {
                 wound.pain = 0.0;
-                wound.treated = true;
+                if wound.kind != WoundKind::Fracture {
+                    wound.treated = true;
+                }
                 true
             }
             None => false,
@@ -127,7 +128,7 @@ impl BodyState {
 
 #[cfg(test)]
 mod tests {
-    use super::super::wound::{landing_wound, WoundKind};
+    use super::super::wound::landing_wound;
     use super::*;
 
     #[test]
@@ -224,6 +225,15 @@ mod tests {
     }
 
     #[test]
+    fn bandage_does_not_replace_a_splint() {
+        let mut body = BodyState::default();
+        body.apply_wound(landing_wound(BodyRegion::LeftLeg, 0.95).unwrap());
+        assert!(body.has_untreated_leg_fracture());
+        body.treat_all_bleeding();
+        assert!(body.has_untreated_leg_fracture());
+    }
+
+    #[test]
     fn bandaging_with_nothing_bleeding_does_nothing() {
         let mut body = BodyState::default();
         assert!(!body.treat_worst_bleeding());
@@ -236,6 +246,14 @@ mod tests {
         assert!(body.has_untreated_leg_fracture());
         assert!(body.treat_fracture());
         assert!(!body.has_untreated_leg_fracture());
+    }
+
+    #[test]
+    fn medkit_pain_relief_does_not_replace_a_splint() {
+        let mut body = BodyState::default();
+        body.apply_wound(landing_wound(BodyRegion::RightLeg, 0.95).unwrap());
+        assert!(body.treat_pain());
+        assert!(body.has_untreated_leg_fracture());
     }
 
     #[test]
