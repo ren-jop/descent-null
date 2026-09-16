@@ -78,26 +78,60 @@ const SHAKE_DECAY_PER_SEC: f32 = 1.4;
 const MAX_SHAKE_OFFSET: f32 = 18.0;
 
 fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn((
-        Player,
-        Sprite {
-            image: asset_server.load("sprites/player.png"),
-            // Slightly less stretched than the previous presentation. The
-            // physics capsule remains unchanged, so this is purely visual.
-            custom_size: Some(Vec2::new(32.0, 48.0)),
-            ..default()
-        },
-        Transform::from_translation(SPAWN),
-        CharacterControllerBundle::new(Collider::capsule(12.5, 20.0)),
-        Friction::ZERO.with_combine_rule(CoefficientCombine::Min),
-        Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
-        ColliderDensity(2.0),
-        GravityScale(1.5),
-        TransformInterpolation,
-        Body::default(),
-        Survival::default(),
-        PlayerInventory::default(),
-    ));
+    commands
+        .spawn((
+            Player,
+            Transform::from_translation(SPAWN),
+            Visibility::default(),
+            CharacterControllerBundle::new(Collider::capsule(12.5, 20.0)),
+            Friction::ZERO.with_combine_rule(CoefficientCombine::Min),
+            Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
+            ColliderDensity(2.0),
+            GravityScale(1.5),
+            TransformInterpolation,
+            Body::default(),
+            Survival::default(),
+            PlayerInventory::default(),
+        ))
+        .with_children(|player| {
+            // Simple original explorer silhouette built from crisp shapes so
+            // the character reads clearly at gameplay scale. This replaces
+            // the distorted placeholder PNG until a full animated sprite
+            // sheet is authored.
+            player.spawn((
+                Sprite::from_color(Color::srgb(0.19, 0.22, 0.24), Vec2::new(22.0, 25.0)),
+                Transform::from_xyz(0.0, 0.0, 0.2),
+            ));
+            // backpack
+            player.spawn((
+                Sprite::from_color(Color::srgb(0.12, 0.14, 0.15), Vec2::new(7.0, 19.0)),
+                Transform::from_xyz(-13.0, 0.0, 0.1),
+            ));
+            // head / face
+            player.spawn((
+                Sprite::from_color(Color::srgb(0.72, 0.58, 0.43), Vec2::new(15.0, 13.0)),
+                Transform::from_xyz(0.0, 18.0, 0.2),
+            ));
+            // helmet
+            player.spawn((
+                Sprite::from_color(Color::srgb(0.70, 0.56, 0.22), Vec2::new(18.0, 7.0)),
+                Transform::from_xyz(0.0, 25.0, 0.3),
+            ));
+            // helmet lamp
+            player.spawn((
+                Sprite::from_color(Color::srgb(0.96, 0.88, 0.54), Vec2::new(5.0, 5.0)),
+                Transform::from_xyz(6.0, 26.0, 0.4),
+            ));
+            // legs
+            player.spawn((
+                Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)),
+                Transform::from_xyz(-6.0, -20.0, 0.2),
+            ));
+            player.spawn((
+                Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)),
+                Transform::from_xyz(6.0, -20.0, 0.2),
+            ));
+        });
 
     commands.spawn((
         Camera2d,
