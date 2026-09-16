@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::time::Virtual;
 
 use crate::body::Body;
 use crate::player::Player;
@@ -18,6 +19,8 @@ struct MiniLeaderboardText;
 #[derive(Component)]
 struct FullLeaderboard;
 #[derive(Component)]
+struct FullLeaderboardButton;
+#[derive(Component)]
 struct FullLeaderboardText;
 
 pub struct LeaderboardPlugin;
@@ -33,7 +36,8 @@ impl Plugin for LeaderboardPlugin {
                     update_mini_leaderboard,
                     update_full_leaderboard,
                 ),
-            );
+            )
+            .add_systems(PostUpdate, pause_for_leaderboard);
     }
 }
 
@@ -118,6 +122,8 @@ fn spawn_leaderboard(mut commands: Commands) {
     commands
         .spawn((
             FullLeaderboard,
+            FullLeaderboardButton,
+            Button,
             Node {
                 display: Display::None,
                 position_type: PositionType::Absolute,
@@ -182,7 +188,7 @@ fn spawn_leaderboard(mut commands: Commands) {
                                 TextColor(Color::srgb(0.94, 0.91, 0.82)),
                             ));
                             inner.spawn((
-                                Text::new("L OR ESC  CLOSE"),
+                                Text::new("L / CLICK  CLOSE"),
                                 TextFont {
                                     font_size: 13.0,
                                     ..default()
@@ -197,13 +203,29 @@ fn spawn_leaderboard(mut commands: Commands) {
 fn leaderboard_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<LeaderboardState>,
-    interaction: Query<&Interaction, (Changed<Interaction>, With<MiniLeaderboardButton>)>,
+    mini_interaction: Query<&Interaction, (Changed<Interaction>, With<MiniLeaderboardButton>)>,
+    full_interaction: Query<&Interaction, (Changed<Interaction>, With<FullLeaderboardButton>)>,
 ) {
-    let clicked = interaction
+    let mini_clicked = mini_interaction
         .iter()
         .any(|interaction| *interaction == Interaction::Pressed);
-    if keyboard.just_pressed(KeyCode::KeyL) || clicked {
+    let full_clicked = full_interaction
+        .iter()
+        .any(|interaction| *interaction == Interaction::Pressed);
+
+    if keyboard.just_pressed(KeyCode::KeyL) || mini_clicked {
         state.open = !state.open;
+    } else if state.open && full_clicked {
+        state.open = false;
+    }
+}
+
+fn pause_for_leaderboard(
+    state: Res<LeaderboardState>,
+    mut virtual_time: ResMut<Time<Virtual>>,
+) {
+    if state.open {
+        virtual_time.pause();
     }
 }
 
