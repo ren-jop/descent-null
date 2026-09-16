@@ -12,18 +12,28 @@ pub struct LeaderboardState {
     handled_extraction: bool,
 }
 
-#[derive(Component)] struct MiniLeaderboard;
-#[derive(Component)] struct MiniLeaderboardButton;
-#[derive(Component)] struct MiniLeaderboardText;
-#[derive(Component)] struct FullLeaderboard;
-#[derive(Component)] struct FullLeaderboardButton;
-#[derive(Component)] struct FullLeaderboardText;
+#[derive(Component)]
+struct MiniLeaderboard;
+#[derive(Component)]
+struct MiniLeaderboardButton;
+#[derive(Component)]
+struct MiniLeaderboardText;
+#[derive(Component)]
+struct FullLeaderboard;
+#[derive(Component)]
+struct FullLeaderboardButton;
+#[derive(Component)]
+struct FullLeaderboardText;
 
 pub struct LeaderboardPlugin;
 
 impl Plugin for LeaderboardPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LeaderboardState>()
+            // Name entry is handled before normal gameplay systems. Consumed
+            // keys are cleared after being recorded so typing R/E/F/C etc.
+            // cannot restart, attack or use items behind the score screen.
+            .add_systems(PreUpdate, consume_name_entry_input)
             .add_systems(Startup, spawn_leaderboard)
             .add_systems(
                 Update,
@@ -38,9 +48,15 @@ impl Plugin for LeaderboardPlugin {
     }
 }
 
-fn panel_bg() -> Color { Color::srgba(0.022, 0.020, 0.020, 0.96) }
-fn pixel_border() -> Color { Color::srgb(0.43, 0.39, 0.29) }
-fn pixel_highlight() -> Color { Color::srgb(0.80, 0.67, 0.34) }
+fn panel_bg() -> Color {
+    Color::srgba(0.022, 0.020, 0.020, 0.96)
+}
+fn pixel_border() -> Color {
+    Color::srgb(0.43, 0.39, 0.29)
+}
+fn pixel_highlight() -> Color {
+    Color::srgb(0.80, 0.67, 0.34)
+}
 
 fn best_line(session: &SessionTimes) -> String {
     session
@@ -82,18 +98,27 @@ fn spawn_leaderboard(mut commands: Commands) {
                 .with_children(|inner| {
                     inner.spawn((
                         Text::new("SESSION RECORDS  [L]"),
-                        TextFont { font_size: 11.0, ..default() },
+                        TextFont {
+                            font_size: 11.0,
+                            ..default()
+                        },
                         TextColor(pixel_highlight()),
                     ));
                     inner.spawn((
                         MiniLeaderboardText,
                         Text::new("BEST  --"),
-                        TextFont { font_size: 13.0, ..default() },
+                        TextFont {
+                            font_size: 13.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.94, 0.91, 0.82)),
                     ));
                     inner.spawn((
                         Text::new("CLICK / L  EXPAND"),
-                        TextFont { font_size: 9.0, ..default() },
+                        TextFont {
+                            font_size: 9.0,
+                            ..default()
+                        },
                         TextColor(Color::srgb(0.60, 0.57, 0.50)),
                     ));
                 });
@@ -144,22 +169,35 @@ fn spawn_leaderboard(mut commands: Commands) {
                         .with_children(|inner| {
                             inner.spawn((
                                 Text::new("EXPO SESSION LEADERBOARD"),
-                                TextFont { font_size: 28.0, ..default() },
+                                TextFont {
+                                    font_size: 28.0,
+                                    ..default()
+                                },
                                 TextColor(Color::WHITE),
                             ));
                             inner.spawn((
-                                Node { width: Val::Percent(100.0), height: Val::Px(4.0), ..default() },
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    height: Val::Px(4.0),
+                                    ..default()
+                                },
                                 BackgroundColor(pixel_highlight()),
                             ));
                             inner.spawn((
                                 FullLeaderboardText,
                                 Text::new("No completed runs yet"),
-                                TextFont { font_size: 19.0, ..default() },
+                                TextFont {
+                                    font_size: 19.0,
+                                    ..default()
+                                },
                                 TextColor(Color::srgb(0.94, 0.91, 0.82)),
                             ));
                             inner.spawn((
                                 Text::new("L / CLICK  CLOSE     R  NEXT RUN"),
-                                TextFont { font_size: 13.0, ..default() },
+                                TextFont {
+                                    font_size: 13.0,
+                                    ..default()
+                                },
                                 TextColor(Color::srgb(0.66, 0.62, 0.52)),
                             ));
                         });
@@ -172,11 +210,6 @@ fn begin_name_entry_if_needed(
     session: Res<SessionTimes>,
     mut state: ResMut<LeaderboardState>,
 ) {
-    // Do not reset `open` every normal gameplay frame. The previous version did
-    // exactly that, which made L appear to flash/break because leaderboard_controls
-    // opened it and this system closed it again on the very next frame.
-    // Only clear the result-screen state once when transitioning from a completed
-    // run back into a fresh active run.
     if !stats.extracted {
         if state.handled_extraction {
             state.handled_extraction = false;
@@ -186,7 +219,9 @@ fn begin_name_entry_if_needed(
         }
         return;
     }
-    if state.handled_extraction { return; }
+    if state.handled_extraction {
+        return;
+    }
 
     state.handled_extraction = true;
     state.open = true;
@@ -196,60 +231,116 @@ fn begin_name_entry_if_needed(
     }
 }
 
-fn key_to_char(keyboard: &ButtonInput<KeyCode>) -> Option<char> {
+fn key_to_char(keyboard: &ButtonInput<KeyCode>) -> Option<(KeyCode, char)> {
     let letters = [
-        (KeyCode::KeyA, 'A'), (KeyCode::KeyB, 'B'), (KeyCode::KeyC, 'C'), (KeyCode::KeyD, 'D'),
-        (KeyCode::KeyE, 'E'), (KeyCode::KeyF, 'F'), (KeyCode::KeyG, 'G'), (KeyCode::KeyH, 'H'),
-        (KeyCode::KeyI, 'I'), (KeyCode::KeyJ, 'J'), (KeyCode::KeyK, 'K'), (KeyCode::KeyL, 'L'),
-        (KeyCode::KeyM, 'M'), (KeyCode::KeyN, 'N'), (KeyCode::KeyO, 'O'), (KeyCode::KeyP, 'P'),
-        (KeyCode::KeyQ, 'Q'), (KeyCode::KeyR, 'R'), (KeyCode::KeyS, 'S'), (KeyCode::KeyT, 'T'),
-        (KeyCode::KeyU, 'U'), (KeyCode::KeyV, 'V'), (KeyCode::KeyW, 'W'), (KeyCode::KeyX, 'X'),
-        (KeyCode::KeyY, 'Y'), (KeyCode::KeyZ, 'Z'),
+        (KeyCode::KeyA, 'A'),
+        (KeyCode::KeyB, 'B'),
+        (KeyCode::KeyC, 'C'),
+        (KeyCode::KeyD, 'D'),
+        (KeyCode::KeyE, 'E'),
+        (KeyCode::KeyF, 'F'),
+        (KeyCode::KeyG, 'G'),
+        (KeyCode::KeyH, 'H'),
+        (KeyCode::KeyI, 'I'),
+        (KeyCode::KeyJ, 'J'),
+        (KeyCode::KeyK, 'K'),
+        (KeyCode::KeyL, 'L'),
+        (KeyCode::KeyM, 'M'),
+        (KeyCode::KeyN, 'N'),
+        (KeyCode::KeyO, 'O'),
+        (KeyCode::KeyP, 'P'),
+        (KeyCode::KeyQ, 'Q'),
+        (KeyCode::KeyR, 'R'),
+        (KeyCode::KeyS, 'S'),
+        (KeyCode::KeyT, 'T'),
+        (KeyCode::KeyU, 'U'),
+        (KeyCode::KeyV, 'V'),
+        (KeyCode::KeyW, 'W'),
+        (KeyCode::KeyX, 'X'),
+        (KeyCode::KeyY, 'Y'),
+        (KeyCode::KeyZ, 'Z'),
     ];
     for (key, ch) in letters {
-        if keyboard.just_pressed(key) { return Some(ch); }
+        if keyboard.just_pressed(key) {
+            return Some((key, ch));
+        }
     }
     let digits = [
-        (KeyCode::Digit0, '0'), (KeyCode::Digit1, '1'), (KeyCode::Digit2, '2'), (KeyCode::Digit3, '3'),
-        (KeyCode::Digit4, '4'), (KeyCode::Digit5, '5'), (KeyCode::Digit6, '6'), (KeyCode::Digit7, '7'),
-        (KeyCode::Digit8, '8'), (KeyCode::Digit9, '9'),
+        (KeyCode::Digit0, '0'),
+        (KeyCode::Digit1, '1'),
+        (KeyCode::Digit2, '2'),
+        (KeyCode::Digit3, '3'),
+        (KeyCode::Digit4, '4'),
+        (KeyCode::Digit5, '5'),
+        (KeyCode::Digit6, '6'),
+        (KeyCode::Digit7, '7'),
+        (KeyCode::Digit8, '8'),
+        (KeyCode::Digit9, '9'),
     ];
     for (key, ch) in digits {
-        if keyboard.just_pressed(key) { return Some(ch); }
+        if keyboard.just_pressed(key) {
+            return Some((key, ch));
+        }
     }
     None
+}
+
+fn consume_name_entry_input(
+    mut keyboard: ResMut<ButtonInput<KeyCode>>,
+    stats: Res<RunStats>,
+    mut session: ResMut<SessionTimes>,
+    mut state: ResMut<LeaderboardState>,
+) {
+    if !state.name_entry {
+        return;
+    }
+
+    if keyboard.just_pressed(KeyCode::Backspace) {
+        state.name_buffer.pop();
+        keyboard.clear_just_pressed(KeyCode::Backspace);
+        return;
+    }
+    if keyboard.just_pressed(KeyCode::Space) {
+        if state.name_buffer.len() < 12 {
+            state.name_buffer.push(' ');
+        }
+        keyboard.clear_just_pressed(KeyCode::Space);
+        return;
+    }
+    if keyboard.just_pressed(KeyCode::Enter) {
+        let name = state.name_buffer.trim().to_string();
+        session.record(name, stats.elapsed_secs);
+        state.name_entry = false;
+        keyboard.clear_just_pressed(KeyCode::Enter);
+        return;
+    }
+    if let Some((key, ch)) = key_to_char(&keyboard) {
+        if state.name_buffer.len() < 12 {
+            state.name_buffer.push(ch);
+        }
+        keyboard.clear_just_pressed(key);
+    }
 }
 
 fn leaderboard_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     stats: Res<RunStats>,
-    mut session: ResMut<SessionTimes>,
-    mut state: ResMut<LeaderboardState>,
+    state: ResMut<LeaderboardState>,
     mini_interaction: Query<&Interaction, (Changed<Interaction>, With<MiniLeaderboardButton>)>,
     full_interaction: Query<&Interaction, (Changed<Interaction>, With<FullLeaderboardButton>)>,
 ) {
-    if state.name_entry {
-        if keyboard.just_pressed(KeyCode::Backspace) {
-            state.name_buffer.pop();
-        } else if keyboard.just_pressed(KeyCode::Space) && state.name_buffer.len() < 12 {
-            state.name_buffer.push(' ');
-        } else if let Some(ch) = key_to_char(&keyboard) {
-            if state.name_buffer.len() < 12 { state.name_buffer.push(ch); }
-        }
-        if keyboard.just_pressed(KeyCode::Enter) {
-            let name = state.name_buffer.trim().to_string();
-            session.record(name, stats.elapsed_secs);
-            state.name_entry = false;
-        }
+    let mut state = state;
+    if state.name_entry || stats.extracted {
         return;
     }
 
-    // Once a run is complete the leaderboard owns the result screen until R
-    // starts the next expo player's run. Mid-run it can still be toggled.
-    if stats.extracted { return; }
+    let mini_clicked = mini_interaction
+        .iter()
+        .any(|interaction| *interaction == Interaction::Pressed);
+    let full_clicked = full_interaction
+        .iter()
+        .any(|interaction| *interaction == Interaction::Pressed);
 
-    let mini_clicked = mini_interaction.iter().any(|interaction| *interaction == Interaction::Pressed);
-    let full_clicked = full_interaction.iter().any(|interaction| *interaction == Interaction::Pressed);
     if keyboard.just_pressed(KeyCode::KeyL) || mini_clicked {
         state.open = !state.open;
     } else if state.open && full_clicked {
@@ -267,7 +358,11 @@ fn update_mini_leaderboard(
 ) {
     let dead = player.single().map(|body| body.0.is_dead()).unwrap_or(false);
     if let Ok(mut frame) = frame.single_mut() {
-        frame.display = if state.open || dead || stats.extracted { Display::None } else { Display::Flex };
+        frame.display = if state.open || dead || stats.extracted {
+            Display::None
+        } else {
+            Display::Flex
+        };
     }
     if let Ok(mut text) = text.single_mut() {
         **text = format!("BEST  {}", best_line(&session));
@@ -282,16 +377,21 @@ fn update_full_leaderboard(
     mut text: Query<&mut Text, With<FullLeaderboardText>>,
 ) {
     if let Ok(mut frame) = frame.single_mut() {
-        frame.display = if state.open { Display::Flex } else { Display::None };
+        frame.display = if state.open {
+            Display::Flex
+        } else {
+            Display::None
+        };
     }
-    if !state.open { return; }
+    if !state.open {
+        return;
+    }
 
     if let Ok(mut text) = text.single_mut() {
         **text = if state.name_entry {
             format!(
                 "TOP FIVE TIME!  {:.1}s\n\nTYPE YOUR NAME\n> {}_\n\nLETTERS / NUMBERS / SPACE\nBACKSPACE  DELETE     ENTER  SAVE",
-                stats.elapsed_secs,
-                state.name_buffer
+                stats.elapsed_secs, state.name_buffer
             )
         } else if stats.extracted {
             format!(
