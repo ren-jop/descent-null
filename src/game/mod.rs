@@ -87,11 +87,9 @@ fn play_death_sound(
             "audio/generated_death_trap.wav"
         } else {
             match cause.0 {
-                DamageCause::Enemy | DamageCause::Poison => "audio/generated_death_enemy.wav",
+                DamageCause::Enemy => "audio/generated_death_enemy.wav",
                 DamageCause::Trap => "audio/generated_death_trap.wav",
-                DamageCause::Starvation | DamageCause::Dehydration => {
-                    "audio/generated_death_dehydration.wav"
-                }
+                DamageCause::Dehydration => "audio/generated_death_dehydration.wav",
                 DamageCause::Fall | DamageCause::Unknown => "audio/generated_death_fall.wav",
             }
         };
