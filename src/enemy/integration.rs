@@ -1,9 +1,10 @@
 //! Bevy wiring for two readable cave enemies: the slower crawler and the
-//! faster silverfish/skitter. Both use the same small state machine so
-//! difficulty rises without turning enemy code into a separate framework.
+//! faster silverfish. Both share a small state machine so difficulty rises
+//! without turning enemy code into a separate framework.
 
 use avian2d::prelude::*;
 use bevy::prelude::*;
+use bevy::time::Virtual;
 use rand::Rng;
 
 use crate::body::{landing_wound, Body, BodyRegion, DamageCause, LastDamageCause};
@@ -102,8 +103,6 @@ impl Plugin for EnemyPlugin {
     }
 }
 
-/// Existing world generation calls this generic spawner. Shallow layers stay
-/// crawler-heavy, while deeper spawns have a chance to become a Silverfish.
 pub fn spawn_enemy(commands: &mut Commands, asset_server: &AssetServer, pos: Vec2) -> Entity {
     let mut rng = rand::thread_rng();
     let kind = if pos.y < -1200.0 && rng.gen_bool(0.38) {
@@ -118,7 +117,12 @@ pub fn spawn_skitter(commands: &mut Commands, asset_server: &AssetServer, pos: V
     spawn_kind(commands, asset_server, pos, EnemyKind::Skitter)
 }
 
-fn spawn_kind(commands: &mut Commands, asset_server: &AssetServer, pos: Vec2, kind: EnemyKind) -> Entity {
+fn spawn_kind(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    pos: Vec2,
+    kind: EnemyKind,
+) -> Entity {
     let mut entity = commands.spawn((
         Enemy {
             stats: EnemyStats::new(kind.max_health()),
@@ -127,7 +131,10 @@ fn spawn_kind(commands: &mut Commands, asset_server: &AssetServer, pos: Vec2, ki
         },
         Transform::from_xyz(pos.x, pos.y, 0.4),
         RigidBody::Dynamic,
-        Collider::rectangle(if kind == EnemyKind::Skitter { 20.0 } else { 24.0 }, 12.0),
+        Collider::rectangle(
+            if kind == EnemyKind::Skitter { 20.0 } else { 24.0 },
+            12.0,
+        ),
         LockedAxes::ROTATION_LOCKED,
         ColliderDensity(1.5),
         Friction::new(0.9),
@@ -155,7 +162,7 @@ fn spawn_kind(commands: &mut Commands, asset_server: &AssetServer, pos: Vec2, ki
 }
 
 fn enemy_ai(
-    time: Res<Time>,
+    time: Res<Time<Virtual>>,
     player: Query<&Transform, (With<Player>, Without<Enemy>)>,
     mut enemies: Query<(&Transform, &mut LinearVelocity, &mut Enemy), Without<Player>>,
     mut player_body: Query<&mut Body, With<Player>>,
@@ -163,8 +170,15 @@ fn enemy_ai(
     mut last: ResMut<LastEvent>,
     mut cause: ResMut<LastDamageCause>,
 ) {
-    let Ok(player_transform) = player.single() else { return; };
-    let Ok(mut body) = player_body.single_mut() else { return; };
+    if time.is_paused() {
+        return;
+    }
+    let Ok(player_transform) = player.single() else {
+        return;
+    };
+    let Ok(mut body) = player_body.single_mut() else {
+        return;
+    };
     let player_pos = player_transform.translation.truncate();
     let dt = time.delta_secs();
 
@@ -188,7 +202,9 @@ fn enemy_ai(
                 enemy.cooldown = (enemy.cooldown - dt).max(0.0);
                 if enemy.cooldown <= 0.0 {
                     enemy.cooldown = enemy.kind.attack_cooldown();
-                    if let Some(wound) = landing_wound(enemy.kind.attack_region(), enemy.kind.attack_severity()) {
+                    if let Some(wound) =
+                        landing_wound(enemy.kind.attack_region(), enemy.kind.attack_severity())
+                    {
                         body.0.apply_wound(wound);
                     }
                     cause.0 = DamageCause::Enemy;
@@ -205,7 +221,7 @@ fn enemy_ai(
 }
 
 fn tick_poison(
-    time: Res<Time>,
+    time: Res<Time<Virtual>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut poison: ResMut<PoisonState>,
     mut player_body: Query<&mut Body, With<Player>>,
@@ -216,7 +232,7 @@ fn tick_poison(
         poison.clear();
         return;
     }
-    if poison.remaining <= 0.0 {
+    if time.is_paused() || poison.remaining <= 0.0 {
         return;
     }
 
@@ -228,12 +244,9 @@ fn tick_poison(
         poison.until_tick += POISON_TICK_INTERVAL;
         if let Ok(mut body) = player_body.single_mut() {
             body.0.apply_external_drain(POISON_DAMAGE_PER_TICK);
-            cause.0 = DamageCause::Enemy;
+            cause.0 = DamageCause::Poison;
         }
 
-        // The initial poison warning stays visible for most of the effect.
-        // Near the end, surface one explicit tick so the player connects the
-        // stepped health loss with poison rather than assuming the HUD bugged.
         if poison.remaining <= 2.1 && last.remaining <= 0.20 {
             last.show("POISON TICK  HEALTH -2.5%");
         }
@@ -245,18 +258,25 @@ fn tick_poison(
 }
 
 fn player_attack(
+    virtual_time: Res<Time<Virtual>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     player: Query<&Transform, With<Player>>,
     mut enemies: Query<(Entity, &Transform, &mut Enemy)>,
     mut commands: Commands,
     mut last: ResMut<LastEvent>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyE) { return; }
-    let Ok(player_transform) = player.single() else { return; };
+    if virtual_time.is_paused() || !keyboard.just_pressed(KeyCode::KeyE) {
+        return;
+    }
+    let Ok(player_transform) = player.single() else {
+        return;
+    };
     let player_pos = player_transform.translation.truncate();
 
     for (entity, transform, mut enemy) in &mut enemies {
-        if player_pos.distance(transform.translation.truncate()) > MELEE_RANGE { continue; }
+        if player_pos.distance(transform.translation.truncate()) > MELEE_RANGE {
+            continue;
+        }
         let label = enemy.kind.label();
         enemy.stats.take_damage(PLAYER_ATTACK_DAMAGE);
         if enemy.stats.is_dead() {
