@@ -61,6 +61,7 @@ fn spawn_music(mut commands: Commands, asset_server: Res<AssetServer>) {
     let _ = generate_death_sfx("assets/audio/generated_death_fall.wav", DeathTone::Fall);
     let _ = generate_death_sfx("assets/audio/generated_death_trap.wav", DeathTone::Trap);
     let _ = generate_death_sfx("assets/audio/generated_death_enemy.wav", DeathTone::Enemy);
+    let _ = generate_death_sfx("assets/audio/generated_death_dehydration.wav", DeathTone::Dehydration);
 
     commands.spawn((
         AudioPlayer::new(asset_server.load(asset_path)),
@@ -85,6 +86,7 @@ fn play_death_sound(
             match cause.0 {
                 DamageCause::Enemy => "audio/generated_death_enemy.wav",
                 DamageCause::Trap => "audio/generated_death_trap.wav",
+                DamageCause::Dehydration => "audio/generated_death_dehydration.wav",
                 DamageCause::Fall | DamageCause::Unknown => "audio/generated_death_fall.wav",
             }
         };
@@ -125,7 +127,12 @@ fn write_wav_header(
 }
 
 #[derive(Clone, Copy)]
-enum DeathTone { Fall, Trap, Enemy }
+enum DeathTone {
+    Fall,
+    Trap,
+    Enemy,
+    Dehydration,
+}
 
 fn generate_death_sfx(path: &str, tone: DeathTone) -> std::io::Result<()> {
     const SAMPLE_RATE: u32 = 16_000;
@@ -139,12 +146,14 @@ fn generate_death_sfx(path: &str, tone: DeathTone) -> std::io::Result<()> {
         DeathTone::Fall => (185.0, 58.0, 0.10, 0.48),
         DeathTone::Trap => (300.0, 115.0, 0.22, 1.72),
         DeathTone::Enemy => (135.0, 78.0, 0.16, 0.67),
+        DeathTone::Dehydration => (112.0, 88.0, 0.06, 1.03),
     };
 
     let mut noise_state: u32 = match tone {
         DeathTone::Fall => 0x71D2_03A5,
         DeathTone::Trap => 0x145A_991B,
         DeathTone::Enemy => 0x8BE3_201D,
+        DeathTone::Dehydration => 0x41A9_77C3,
     };
 
     for index in 0..sample_count {
