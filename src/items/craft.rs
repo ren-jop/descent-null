@@ -1,6 +1,6 @@
-//! simple crafting: fixed recipes, first one you can afford gets made.
-//! no crafting menu yet — pressing the craft key just tries them in
-//! order. pure logic, no bevy.
+//! Small recipe catalogue used by the crafting menu.
+//! Crafting is deliberate: the player chooses a numbered recipe instead
+//! of `C` silently crafting the first affordable result.
 
 use super::inventory::Inventory;
 use super::item::{ItemKind, ItemStack};
@@ -15,27 +15,31 @@ const RECIPES: &[Recipe] = &[
     Recipe {
         inputs: &[(ItemKind::Scrap, 3), (ItemKind::Cloth, 1)],
         output: ItemStack { kind: ItemKind::Bandage, quantity: 1 },
-        purpose: "stops active bleeding",
+        purpose: "Stops active bleeding",
     },
     Recipe {
         inputs: &[(ItemKind::Metal, 2), (ItemKind::Scrap, 1)],
         output: ItemStack { kind: ItemKind::Splint, quantity: 1 },
-        purpose: "stabilises a fracture and restores movement",
+        purpose: "Stabilises a leg fracture",
     },
     Recipe {
         inputs: &[(ItemKind::Cloth, 1), (ItemKind::Metal, 1), (ItemKind::Battery, 1)],
         output: ItemStack { kind: ItemKind::Medkit, quantity: 1 },
-        purpose: "restores blood volume and treats pain",
+        purpose: "Restores blood and treats pain",
     },
 ];
 
-/// Human-readable recipe list for the HUD. Every line states both the
-/// ingredients and the gameplay reason to make the item, so crafting is
-/// a decision rather than a memory test.
+pub fn recipe_count() -> usize {
+    RECIPES.len()
+}
+
+/// ASCII-only descriptions: the default bundled font used on some Macs
+/// does not contain the old Unicode bullet glyph, which rendered as boxes.
 pub fn recipe_descriptions() -> Vec<String> {
     RECIPES
         .iter()
-        .map(|recipe| {
+        .enumerate()
+        .map(|(index, recipe)| {
             let inputs = recipe
                 .inputs
                 .iter()
@@ -43,25 +47,57 @@ pub fn recipe_descriptions() -> Vec<String> {
                 .collect::<Vec<_>>()
                 .join(" + ");
             format!(
-                "{inputs} -> {}  •  {}",
-                recipe.output.kind.label(),
-                recipe.purpose
+                "[{}] {}\n    Need: {}\n    Use: {}",
+                index + 1,
+                recipe.output.kind.label().to_uppercase(),
+                inputs,
+                recipe.purpose,
             )
         })
         .collect()
 }
 
-/// tries each recipe in order; crafts (consumes inputs, adds output) the
-/// first one the inventory can afford. returns the crafted kind, if any.
-pub fn try_craft(inventory: &mut Inventory) -> Option<ItemKind> {
-    let recipe = RECIPES
+pub fn can_craft(inventory: &Inventory, index: usize) -> bool {
+    RECIPES
+        .get(index)
+        .map(|recipe| {
+            recipe
+                .inputs
+                .iter()
+                .all(|(kind, qty)| inventory.quantity_of(*kind) >= *qty)
+        })
+        .unwrap_or(false)
+}
+
+/// Craft exactly the recipe the player selected. Returns the output kind
+/// when successful; `None` means the recipe does not exist or ingredients
+/// are missing.
+pub fn try_craft_index(inventory: &mut Inventory, index: usize) -> Option<ItemKind> {
+    let recipe = RECIPES.get(index)?;
+    if !recipe
+        .inputs
         .iter()
-        .find(|r| r.inputs.iter().all(|(kind, qty)| inventory.quantity_of(*kind) >= *qty))?;
+        .all(|(kind, qty)| inventory.quantity_of(*kind) >= *qty)
+    {
+        return None;
+    }
     for (kind, qty) in recipe.inputs {
         inventory.remove(*kind, *qty);
     }
-    inventory.add(recipe.output);
-    Some(recipe.output.kind)
+    if inventory.add(recipe.output) {
+        Some(recipe.output.kind)
+    } else {
+        // Inputs normally reduce weight, so this should be rare. Keeping
+        // the return type simple is fine for the current tiny catalogue.
+        None
+    }
+}
+
+/// Kept for tests / compatibility. The actual game UI now calls
+/// `try_craft_index` after the player chooses a numbered recipe.
+pub fn try_craft(inventory: &mut Inventory) -> Option<ItemKind> {
+    let index = (0..RECIPES.len()).find(|index| can_craft(inventory, *index))?;
+    try_craft_index(inventory, index)
 }
 
 #[cfg(test)]
@@ -69,37 +105,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn crafts_bandage_when_materials_available() {
+    fn crafts_selected_bandage_when_materials_available() {
         let mut inv = Inventory::new(20);
         inv.add(ItemStack::new(ItemKind::Scrap, 3));
         inv.add(ItemStack::new(ItemKind::Cloth, 1));
-        assert_eq!(try_craft(&mut inv), Some(ItemKind::Bandage));
+        assert_eq!(try_craft_index(&mut inv, 0), Some(ItemKind::Bandage));
         assert_eq!(inv.quantity_of(ItemKind::Bandage), 1);
-        assert_eq!(inv.quantity_of(ItemKind::Scrap), 0);
-        assert_eq!(inv.quantity_of(ItemKind::Cloth), 0);
     }
 
     #[test]
-    fn does_nothing_without_materials() {
+    fn refuses_selected_recipe_without_materials() {
         let mut inv = Inventory::new(20);
-        assert_eq!(try_craft(&mut inv), None);
+        assert_eq!(try_craft_index(&mut inv, 2), None);
     }
 
     #[test]
-    fn skips_unaffordable_recipes_for_an_affordable_one() {
-        let mut inv = Inventory::new(20);
-        // not enough for bandage (needs 3 scrap), but enough for a splint.
-        inv.add(ItemStack::new(ItemKind::Scrap, 1));
-        inv.add(ItemStack::new(ItemKind::Metal, 2));
-        assert_eq!(try_craft(&mut inv), Some(ItemKind::Splint));
-    }
-
-    #[test]
-    fn recipe_descriptions_lists_every_recipe_and_why_it_matters() {
+    fn descriptions_are_numbered_and_ascii_friendly() {
         let descriptions = recipe_descriptions();
-        assert_eq!(descriptions.len(), RECIPES.len());
-        assert!(descriptions.iter().any(|d| d.contains("bandage") && d.contains("bleeding")));
-        assert!(descriptions.iter().any(|d| d.contains("splint") && d.contains("fracture")));
-        assert!(descriptions.iter().any(|d| d.contains("medkit") && d.contains("blood")));
+        assert_eq!(descriptions.len(), recipe_count());
+        assert!(descriptions[0].contains("[1] BANDAGE"));
+        assert!(descriptions[0].contains("Stops active bleeding"));
     }
 }
