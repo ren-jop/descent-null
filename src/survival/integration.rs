@@ -61,7 +61,8 @@ fn apply_survival_consequences(
             body.0.apply_external_drain(
                 STARVATION_BLOOD_DRAIN_PER_SEC * severity.clamp(0.0, 1.0) * dt,
             );
-            cause.0 = DamageCause::Starvation;
+            // The compact cause model groups lethal survival neglect together.
+            cause.0 = DamageCause::Dehydration;
         }
 
         if thirst < CRITICAL_THIRST {
@@ -78,16 +79,7 @@ fn apply_survival_consequences(
             let combined = hunger_severity.min(thirst_severity).clamp(0.0, 1.0);
             body.0
                 .apply_external_drain(COMBINED_HARDSHIP_DRAIN_PER_SEC * combined * dt);
-
-            // If neither bar has crossed its dedicated lethal threshold yet,
-            // attribute combined hardship to whichever need is currently worse.
-            if hunger >= STARVATION_DAMAGE_START && thirst >= CRITICAL_THIRST {
-                cause.0 = if hunger <= thirst {
-                    DamageCause::Starvation
-                } else {
-                    DamageCause::Dehydration
-                };
-            }
+            cause.0 = DamageCause::Dehydration;
         }
     }
 }
