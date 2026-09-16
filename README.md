@@ -15,11 +15,14 @@ Highlights:
 - Two enemy types: slower cave **Crawlers** and faster deep-layer **Skitters** that detect you earlier and pressure your legs.
 - Spike traps and Null Surge movement boosts add pressure without obscuring the core route.
 - Body simulation with wounds, fractures, bleeding, blood volume, unconsciousness and death.
-- Survival is intentionally simple: **Health, Hunger and Thirst**. There is no separate stamina meter.
-- Hunger has a direct readable consequence: below 65%, movement gradually slows; starvation becomes a major speed penalty.
-- Thirst owns the vision consequence: below 50%, the vignette progressively narrows the visible cave. Critical dehydration is announced and also drains health/blood volume until the player drinks water.
+- Survival uses **Health, Hunger and Thirst**. There is no separate stamina meter.
+- Hunger gradually reduces movement speed and, at critical starvation, starts draining health.
+- Thirst narrows vision and becomes a faster direct health threat at critical dehydration.
+- Hunger and thirst now interact: low hydration accelerates hunger loss, low food accelerates thirst loss, and having both low adds extra health pressure.
+- Passive health regeneration is deliberately slow, so treatment and resource management matter between encounters.
 - Untreated lacerations/fractures bleed fast enough that treatment matters without becoming instant death.
-- New-player help is **non-blocking**. If the player immediately uses A/D or arrow keys, nothing interrupts them; if they mash unrelated keys first, the FIELD LOG gives a movement hint. Full controls remain available from `Esc` pause/help.
+- A permanent `[G] WALKTHROUGH` prompt gives expo players a reliable place to learn the game. Press `G` at any time during a run to open a full step-by-step guide covering movement, pickups, item use, survival, crafting, enemies, objectives and session records.
+- The lightweight FIELD LOG still gives contextual warnings for movement, survival danger, crafting readiness and discoveries without constantly narrating play.
 - One larger mission panel lives at the top-left. Objective information is not duplicated elsewhere.
 - The current layer is always shown in large white SF Mono-style text at the true top-centre and updates directly from world state.
 - Pixel-style HUD: chunky framed panels, pixel icons, segmented coloured Health/Hunger/Thirst bars with numeric percentages, and a bordered 1-9 hotbar.
@@ -70,6 +73,7 @@ cargo run --release
 - `C` - open/close crafting
 - `1` / `2` / `3` while crafting - craft that recipe
 - `E` - melee attack
+- `G` - open/close the walkthrough guide
 - `L` - expand/collapse the session leaderboard
 - mouse click on the mini/full leaderboard - expand/collapse it
 - during top-five name entry: letters/numbers/space type, Backspace edits, Enter saves
@@ -79,4 +83,4 @@ cargo run --release
 
 ## Core loop
 
-Follow the wide ledges downward, collect supplies, react to concise FIELD LOG warnings when something actually matters, manage wounds/hunger/thirst, survive Crawlers and Skitters, recover the guarded cargo at the bottom, and carry it to extraction. Fast successful runs compete for the shared top-five **current-session** leaderboard.
+Follow the wide ledges downward, collect supplies, manage wounds and the linked hunger/thirst system, survive Crawlers and Skitters, recover the guarded cargo at the bottom, and carry it to extraction. Press `G` whenever a new player needs the walkthrough. Fast successful runs compete for the shared top-five **current-session** leaderboard.
