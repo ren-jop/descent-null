@@ -8,9 +8,9 @@ use avian2d::prelude::*;
 use bevy::audio::Volume;
 use bevy::prelude::*;
 
-use crate::body::{Body, BodyPlugin};
+use crate::body::{Body, BodyPlugin, DamageCause, LastDamageCause};
 use crate::enemy::EnemyPlugin;
-use crate::items::ItemsPlugin;
+use crate::items::{ItemsPlugin, LastEvent};
 use crate::physics::PhysicsGameplayPlugin;
 use crate::player::{Player, PlayerPlugin};
 use crate::survival::SurvivalPlugin;
@@ -58,7 +58,9 @@ fn spawn_music(mut commands: Commands, asset_server: Res<AssetServer>) {
         "audio/ambience.wav"
     };
 
-    let _ = generate_death_sfx("assets/audio/generated_death.wav");
+    let _ = generate_death_sfx("assets/audio/generated_death_fall.wav", DeathTone::Fall);
+    let _ = generate_death_sfx("assets/audio/generated_death_trap.wav", DeathTone::Trap);
+    let _ = generate_death_sfx("assets/audio/generated_death_enemy.wav", DeathTone::Enemy);
 
     commands.spawn((
         AudioPlayer::new(asset_server.load(asset_path)),
@@ -70,12 +72,24 @@ fn play_death_sound(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     player: Query<&Body, With<Player>>,
+    cause: Res<LastDamageCause>,
+    last_event: Res<LastEvent>,
     mut was_dead: Local<bool>,
 ) {
     let dead = player.single().map(|body| body.0.is_dead()).unwrap_or(false);
     if dead && !*was_dead {
+        let event_upper = last_event.text.to_uppercase();
+        let asset = if event_upper.contains("TRAP") || event_upper.contains("SPIKE") {
+            "audio/generated_death_trap.wav"
+        } else {
+            match cause.0 {
+                DamageCause::Enemy => "audio/generated_death_enemy.wav",
+                DamageCause::Trap => "audio/generated_death_trap.wav",
+                DamageCause::Fall | DamageCause::Unknown => "audio/generated_death_fall.wav",
+            }
+        };
         commands.spawn((
-            AudioPlayer::new(asset_server.load("audio/generated_death.wav")),
+            AudioPlayer::new(asset_server.load(asset)),
             PlaybackSettings::DESPAWN.with_volume(Volume::Linear(0.72)),
         ));
     }
@@ -110,7 +124,10 @@ fn write_wav_header(
     Ok(())
 }
 
-fn generate_death_sfx(path: &str) -> std::io::Result<()> {
+#[derive(Clone, Copy)]
+enum DeathTone { Fall, Trap, Enemy }
+
+fn generate_death_sfx(path: &str, tone: DeathTone) -> std::io::Result<()> {
     const SAMPLE_RATE: u32 = 16_000;
     const SECONDS: f32 = 0.95;
     let sample_count = (SAMPLE_RATE as f32 * SECONDS) as u32;
@@ -118,19 +135,31 @@ fn generate_death_sfx(path: &str) -> std::io::Result<()> {
     let mut writer = BufWriter::new(file);
     write_wav_header(&mut writer, SAMPLE_RATE, sample_count)?;
 
-    let mut noise_state: u32 = 0x71D2_03A5;
+    let (start_pitch, end_pitch, noise_amp, second_ratio) = match tone {
+        DeathTone::Fall => (185.0, 58.0, 0.10, 0.48),
+        DeathTone::Trap => (300.0, 115.0, 0.22, 1.72),
+        DeathTone::Enemy => (135.0, 78.0, 0.16, 0.67),
+    };
+
+    let mut noise_state: u32 = match tone {
+        DeathTone::Fall => 0x71D2_03A5,
+        DeathTone::Trap => 0x145A_991B,
+        DeathTone::Enemy => 0x8BE3_201D,
+    };
+
     for index in 0..sample_count {
         let t = index as f32 / SAMPLE_RATE as f32;
-        let env = (-3.6 * t).exp();
-        let pitch = 170.0 - 95.0 * (t / SECONDS).clamp(0.0, 1.0);
+        let env = (-3.8 * t).exp();
+        let progress = (t / SECONDS).clamp(0.0, 1.0);
+        let pitch = start_pitch + (end_pitch - start_pitch) * progress;
         let mut sample = 0.42 * env * (TAU * pitch * t).sin();
-        sample += 0.20 * env * (TAU * pitch * 0.49 * t).sin();
+        sample += 0.18 * env * (TAU * pitch * second_ratio * t).sin();
 
         noise_state = noise_state
             .wrapping_mul(1_664_525)
             .wrapping_add(1_013_904_223);
         let noise = ((noise_state >> 8) as f32 / 16_777_215.0) * 2.0 - 1.0;
-        sample += noise * 0.12 * (-8.0 * t).exp();
+        sample += noise * noise_amp * (-8.5 * t).exp();
 
         let pcm = (sample.tanh().clamp(-0.95, 0.95) * i16::MAX as f32) as i16;
         writer.write_all(&pcm.to_le_bytes())?;
@@ -162,17 +191,13 @@ fn generate_score(path: &str) -> std::io::Result<()> {
             (174.61, 0.045, 2.0, 0.018),
         ] {
             let motion = 0.64 + 0.36 * (TAU * lfo * t + phase).sin();
-            sample += amp
-                * motion
-                * (TAU * freq * t + 0.18 * (TAU * 0.014 * t + phase).sin()).sin();
+            sample += amp * motion * (TAU * freq * t + 0.18 * (TAU * 0.014 * t + phase).sin()).sin();
         }
 
         let pulse_t = t % 3.0;
         if pulse_t < 1.1 {
             let env = (-4.0 * pulse_t).exp();
-            sample += env
-                * (0.18 * (TAU * 48.0 * pulse_t).sin()
-                    + 0.065 * (TAU * 72.0 * pulse_t).sin());
+            sample += env * (0.18 * (TAU * 48.0 * pulse_t).sin() + 0.065 * (TAU * 72.0 * pulse_t).sin());
         }
 
         let note_slot = ((t / 3.0).floor() as usize) % motif.len();
@@ -180,15 +205,12 @@ fn generate_score(path: &str) -> std::io::Result<()> {
         if note_t < 1.35 {
             let freq = motif[note_slot];
             let env = (-3.6 * note_t).exp();
-            sample += env
-                * (0.085 * (TAU * freq * note_t).sin()
-                    + 0.032 * (TAU * freq * 2.01 * note_t).sin()
-                    + 0.018 * (TAU * freq * 0.5 * note_t).sin());
+            sample += env * (0.085 * (TAU * freq * note_t).sin()
+                + 0.032 * (TAU * freq * 2.01 * note_t).sin()
+                + 0.018 * (TAU * freq * 0.5 * note_t).sin());
         }
 
-        noise_state = noise_state
-            .wrapping_mul(1_664_525)
-            .wrapping_add(1_013_904_223);
+        noise_state = noise_state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
         let noise = ((noise_state >> 8) as f32 / 16_777_215.0) * 2.0 - 1.0;
         let metal_t = (t + 0.75) % 6.0;
         if metal_t < 0.32 {
