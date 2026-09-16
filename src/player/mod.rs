@@ -48,7 +48,7 @@ struct Vignette;
 struct Nametag;
 
 /// how long the on-screen control hints stay visible after a (re)spawn.
-const HINT_SECONDS: f32 = 6.0;
+const HINT_SECONDS: f32 = 7.0;
 
 /// seconds left to show the "how to play" hint. counts down to 0; ui
 /// reads this to decide whether to show it. reset to HINT_SECONDS on
@@ -63,8 +63,8 @@ impl Default for SpawnHint {
 }
 
 const SPAWN: Vec3 = Vec3::new(-420.0, 40.0, 0.0);
-const NAMETAG_OFFSET: f32 = 30.0;
-const CAMERA_Y_OFFSET: f32 = 48.0;
+const NAMETAG_OFFSET: f32 = 40.0;
+const CAMERA_Y_OFFSET: f32 = 58.0;
 
 /// the camera's smoothed target position, tracked separately from the
 /// actual rendered Transform. apply_camera_shake writes
@@ -98,7 +98,10 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
         Player,
         Sprite {
             image: asset_server.load("sprites/player.png"),
-            custom_size: Some(Vec2::new(25.0, 40.0)),
+            // Keep the physics body unchanged while making the character much
+            // easier to read against the cave. The art can be redrawn at this
+            // native target size later without changing gameplay collision.
+            custom_size: Some(Vec2::new(34.0, 54.0)),
             ..default()
         },
         Transform::from_translation(SPAWN),
@@ -131,7 +134,7 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Nametag,
         Text2d::new("Player One"),
-        TextFont { font_size: 14.0, ..default() },
+        TextFont { font_size: 16.0, ..default() },
         TextColor(Color::srgb(0.92, 0.90, 0.84)),
         Transform::from_xyz(SPAWN.x, SPAWN.y + NAMETAG_OFFSET, 1.0),
     ));
