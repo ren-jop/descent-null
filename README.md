@@ -4,7 +4,7 @@ An original 2D survival-exploration game about descending into a hostile undergr
 
 ## Current build
 
-The current build is optimized around **first-time-player UX**. The game should teach the player at the moment an action becomes relevant, then get out of the way.
+The current build is optimized around **first-time-player UX** while keeping the normal play screen clean.
 
 Highlights:
 
@@ -14,20 +14,21 @@ Highlights:
 - Two-step mission: descend and recover cargo, then reach extraction.
 - Cave crawlers, spike traps and Null Surge movement boosts add pressure without obscuring the core route.
 - Body simulation with wounds, fractures, bleeding, blood volume, unconsciousness and death.
-- Hunger and thirst reduce stamina recovery and movement performance when low; they do not silently drain health.
-- A **modal first-run field manual** pauses gameplay at the exact onboarding moments for movement, jumping, pickups, hotbar selection/use and the first available craft.
-- One larger objective panel lives at the top-left. Objective information is not duplicated elsewhere.
-- The current layer is always shown in large white text at the top-centre and updates directly from world state, including after respawn.
-- Pixel-style HUD: chunky framed panels, pixel icons, segmented coloured vitality bars with numeric percentages, and a bordered 1-9 hotbar.
-- One animated right-side **FIELD LOG** slides in for meaningful events such as a new layer, pickups, danger and mission changes.
+- Survival is intentionally simple: **Health, Hunger and Thirst**. There is no separate stamina meter.
+- Low hunger/thirst reduce movement performance. Critical dehydration is explicitly announced and begins reducing health/blood volume until the player drinks water.
+- New-player help is **non-blocking**. If the player immediately uses A/D or arrow keys, nothing interrupts them; if they mash unrelated keys first, the FIELD LOG gives a movement hint. Full controls remain available from `Esc` pause/help.
+- One larger mission panel lives at the top-left. Objective information is not duplicated elsewhere.
+- The current layer is always shown in large white SF Mono-style text at the true top-centre and updates directly from world state.
+- Pixel-style HUD: chunky framed panels, pixel icons, segmented coloured Health/Hunger/Thirst bars with numeric percentages, and a bordered 1-9 hotbar.
+- One compact animated right-side **FIELD LOG** slides in only for meaningful events such as entering a layer, discovering supplies, traps, crafting readiness, hunger/thirst warnings and other important state changes.
 - 1-9 hotbar with unlimited same-item stacking. `F` uses the selected item.
 - `C` opens a dedicated crafting screen.
 - `Esc` opens pause/help.
-- Different death causes use different generated sound effects.
+- Different death causes use different generated sound effects, including dehydration.
 - Personal best times persist locally, while a separate session leaderboard resets each time the game is launched.
 - On macOS the UI uses installed **SF Mono** when available. Other systems automatically use Bevy's bundled fallback; no Apple font is distributed with the project.
 - Original soundtrack and death effects are generated locally at launch; generated WAV files are not committed.
-- The player's earlier walking feel is preserved; only the rendered character offset is raised so the boots sit visually on top of platform tiles instead of sinking into them.
+- The player's preferred walking feel is preserved; only the rendered character offset is raised so the boots sit visually on top of platform tiles instead of sinking into them.
 
 See `docs/REBUILD_PLAN.md` for the gameplay-first roadmap.
 
@@ -70,4 +71,4 @@ cargo run --release
 
 ## Core loop
 
-Follow the wide ledges downward, collect supplies, respond to the field manual when a new mechanic is first introduced, manage wounds and survival pressure, recover the guarded cargo at the bottom, and carry it to extraction. Faster successful runs are recorded in both the current-session and persistent personal leaderboards.
+Follow the wide ledges downward, collect supplies, react to concise FIELD LOG warnings when something actually matters, manage wounds/hunger/thirst, recover the guarded cargo at the bottom, and carry it to extraction. Faster successful runs are recorded in both the current-session and persistent personal leaderboards.
