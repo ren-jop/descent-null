@@ -36,13 +36,10 @@ impl Plugin for PlayerPlugin {
 
 #[derive(Component)]
 pub struct Player;
-
 #[derive(Component)]
 pub struct FollowCamera;
-
 #[derive(Component)]
 struct PlayerVisual;
-
 #[derive(Component)]
 struct Vignette;
 
@@ -102,52 +99,31 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
                 .spawn((PlayerVisual, Transform::default(), Visibility::default()))
                 .with_children(|visual| {
                     visual.spawn((
-                        Sprite::from_color(
-                            Color::srgb(0.19, 0.22, 0.24),
-                            Vec2::new(22.0, 25.0),
-                        ),
+                        Sprite::from_color(Color::srgb(0.19, 0.22, 0.24), Vec2::new(22.0, 25.0)),
                         Transform::from_xyz(0.0, 0.0, 0.2),
                     ));
                     visual.spawn((
-                        Sprite::from_color(
-                            Color::srgb(0.12, 0.14, 0.15),
-                            Vec2::new(7.0, 19.0),
-                        ),
+                        Sprite::from_color(Color::srgb(0.12, 0.14, 0.15), Vec2::new(7.0, 19.0)),
                         Transform::from_xyz(-13.0, 0.0, 0.1),
                     ));
                     visual.spawn((
-                        Sprite::from_color(
-                            Color::srgb(0.72, 0.58, 0.43),
-                            Vec2::new(15.0, 13.0),
-                        ),
+                        Sprite::from_color(Color::srgb(0.72, 0.58, 0.43), Vec2::new(15.0, 13.0)),
                         Transform::from_xyz(0.0, 18.0, 0.2),
                     ));
                     visual.spawn((
-                        Sprite::from_color(
-                            Color::srgb(0.70, 0.56, 0.22),
-                            Vec2::new(18.0, 7.0),
-                        ),
+                        Sprite::from_color(Color::srgb(0.70, 0.56, 0.22), Vec2::new(18.0, 7.0)),
                         Transform::from_xyz(0.0, 25.0, 0.3),
                     ));
                     visual.spawn((
-                        Sprite::from_color(
-                            Color::srgb(0.96, 0.88, 0.54),
-                            Vec2::new(5.0, 5.0),
-                        ),
+                        Sprite::from_color(Color::srgb(0.96, 0.88, 0.54), Vec2::new(5.0, 5.0)),
                         Transform::from_xyz(6.0, 26.0, 0.4),
                     ));
                     visual.spawn((
-                        Sprite::from_color(
-                            Color::srgb(0.11, 0.13, 0.14),
-                            Vec2::new(7.0, 17.0),
-                        ),
+                        Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)),
                         Transform::from_xyz(-6.0, -20.0, 0.2),
                     ));
                     visual.spawn((
-                        Sprite::from_color(
-                            Color::srgb(0.11, 0.13, 0.14),
-                            Vec2::new(7.0, 17.0),
-                        ),
+                        Sprite::from_color(Color::srgb(0.11, 0.13, 0.14), Vec2::new(7.0, 17.0)),
                         Transform::from_xyz(6.0, -20.0, 0.2),
                     ));
                 });
@@ -170,8 +146,6 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 }
 
-/// Lightweight visual feedback: face the direction of travel and add a tiny
-/// bob/lean while moving. Physics and collider transforms are untouched.
 fn animate_player_visual(
     time: Res<Time>,
     player: Query<&LinearVelocity, With<Player>>,
@@ -186,13 +160,6 @@ fn animate_player_visual(
         1.0
     } else if velocity.x < -20.0 {
         -1.0
-    } else {
-        visual.scale.x.signum().max(1.0_f32.copysign(visual.scale.x))
-    };
-
-    // Preserve whichever way the explorer last faced when standing still.
-    let facing = if moving {
-        facing
     } else if visual.scale.x < 0.0 {
         -1.0
     } else {
@@ -219,11 +186,7 @@ fn follow_camera(
         return;
     };
     let dt = time.delta_secs();
-    let target = Vec3::new(
-        player.translation.x,
-        player.translation.y + CAMERA_Y_OFFSET,
-        0.0,
-    );
+    let target = Vec3::new(player.translation.x, player.translation.y + CAMERA_Y_OFFSET, 0.0);
     let blend = 1.0 - (-6.0 * dt).exp();
     follow.position = follow.position.lerp(target, blend);
 }
