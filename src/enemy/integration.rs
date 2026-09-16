@@ -1,12 +1,9 @@
-//! bevy wiring for the cave crawler enemy: spawning, the idle/chase/
-//! attack AI, and the player's melee attack (`E`). depends on `body`
-//! (bites create a real wound through the same pipeline as fall damage)
-//! and `player`/`items` (who to chase, where to report combat text).
+//! Bevy wiring for the cave crawler enemy.
 
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
-use crate::body::{landing_wound, Body, BodyRegion};
+use crate::body::{landing_wound, Body, BodyRegion, DamageCause, LastDamageCause};
 use crate::items::LastEvent;
 use crate::player::Player;
 
@@ -15,8 +12,6 @@ use super::state::{state_for_distance, EnemyState, EnemyStats};
 const ENEMY_MAX_HEALTH: f32 = 20.0;
 const CHASE_SPEED: f32 = 90.0;
 const ATTACK_COOLDOWN: f32 = 1.3;
-/// fed into body::landing_wound — 0.5 lands in the laceration range, so a
-/// bite draws blood, same pipeline a bad landing uses.
 const BITE_SEVERITY: f32 = 0.5;
 const PLAYER_ATTACK_DAMAGE: f32 = 5.0;
 const MELEE_RANGE: f32 = 46.0;
@@ -35,10 +30,6 @@ impl Plugin for EnemyPlugin {
     }
 }
 
-/// spawns one cave crawler at `pos`. called from world generation, not
-/// from this plugin's own Startup — the cave owns where enemies land.
-/// returns the entity so the caller can tag it (e.g. for despawning on
-/// cave regeneration) without this module needing to know why.
 pub fn spawn_enemy(commands: &mut Commands, asset_server: &AssetServer, pos: Vec2) -> Entity {
     commands
         .spawn((
@@ -66,6 +57,7 @@ fn enemy_ai(
     mut enemies: Query<(&Transform, &mut LinearVelocity, &mut Enemy), Without<Player>>,
     mut player_body: Query<&mut Body, With<Player>>,
     mut last: ResMut<LastEvent>,
+    mut cause: ResMut<LastDamageCause>,
 ) {
     let Ok(player_transform) = player.single() else {
         return;
@@ -94,16 +86,14 @@ fn enemy_ai(
                     if let Some(wound) = landing_wound(BodyRegion::Torso, BITE_SEVERITY) {
                         body.0.apply_wound(wound);
                     }
-                    last.show("bitten — bleeding from torso");
+                    cause.0 = DamageCause::Enemy;
+                    last.show("ATTACK: CRAWLER BITE");
                 }
             }
         }
     }
 }
 
-/// `E` — melee attack. hits the first enemy in range, once per press.
-/// no swing animation/hitbox — a proximity check, matching how pickups
-/// and supply use already work in this codebase.
 fn player_attack(
     keyboard: Res<ButtonInput<KeyCode>>,
     player: Query<&Transform, With<Player>>,
@@ -126,9 +116,9 @@ fn player_attack(
         enemy.stats.take_damage(PLAYER_ATTACK_DAMAGE);
         if enemy.stats.is_dead() {
             commands.entity(entity).despawn();
-            last.show("enemy defeated");
+            last.show("CRAWLER DEFEATED");
         } else {
-            last.show(format!("hit enemy ({:.0}/{:.0} hp)", enemy.stats.health(), enemy.stats.max_health()));
+            last.show("HIT CRAWLER");
         }
         break;
     }
