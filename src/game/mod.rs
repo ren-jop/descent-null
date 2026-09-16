@@ -15,7 +15,7 @@ use crate::physics::PhysicsGameplayPlugin;
 use crate::player::{Player, PlayerPlugin};
 use crate::survival::SurvivalPlugin;
 use crate::ui::HudPlugin;
-use crate::world::CavePlugin;
+use crate::world::{CavePlugin, RecordsPlugin};
 
 pub struct GamePlugin;
 
@@ -40,6 +40,7 @@ impl Plugin for GamePlugin {
             EnemyPlugin,
             PlayerPlugin,
             CavePlugin,
+            RecordsPlugin,
             HudPlugin,
         ))
         .insert_resource(ClearColor(Color::srgb(0.045, 0.04, 0.045)))
@@ -57,7 +58,6 @@ fn spawn_music(mut commands: Commands, asset_server: Res<AssetServer>) {
         "audio/ambience.wav"
     };
 
-    // Generate the death sting at startup too; it is only played when needed.
     let _ = generate_death_sfx("assets/audio/generated_death.wav");
 
     commands.spawn((
