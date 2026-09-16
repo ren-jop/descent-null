@@ -1,3 +1,4 @@
 /target/
 .DS_Store
 assets/audio/generated_score.wav
+assets/audio/generated_death.wav
