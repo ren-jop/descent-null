@@ -2,3 +2,4 @@
 .DS_Store
 assets/audio/generated_score.wav
 assets/audio/generated_death.wav
+.descent_null_best_times
