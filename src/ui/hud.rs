@@ -187,8 +187,6 @@ fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 fn spawn_objective(commands: &mut Commands) {
-    // Border and text are separate entities so the inner panel can never cover
-    // the objective text (the source of the previous top-left rendering bug).
     commands
         .spawn((
             GameplayHud,
@@ -227,8 +225,6 @@ fn spawn_objective(commands: &mut Commands) {
 }
 
 fn spawn_layer_label(commands: &mut Commands) {
-    // A full-width parent does the centring; the text itself is a child. This
-    // avoids relying on text alignment APIs and keeps the label truly centred.
     commands
         .spawn(Node {
             position_type: PositionType::Absolute,
@@ -452,7 +448,6 @@ fn spawn_hotbar(commands: &mut Commands, asset_server: &AssetServer) {
 fn spawn_field_log(commands: &mut Commands) {
     commands
         .spawn((
-            GameplayHud,
             FieldLogFrame,
             Node {
                 display: Display::None,
@@ -923,8 +918,6 @@ fn update_field_log(
     let exit = (remaining / 0.24).clamp(0.0, 1.0);
     let visibility = enter.min(exit);
     let eased = 1.0 - (1.0 - visibility) * (1.0 - visibility);
-    // Most of the card lives outside the window when collapsed, making the
-    // field log feel like a compact instrument instead of a permanent panel.
     frame.right = Val::Px(-238.0 + 256.0 * eased);
 
     if let Ok(mut h) = header.single_mut() {
