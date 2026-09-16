@@ -1,6 +1,9 @@
-//! Compact retro-pixel HUD. Persistent UI is limited to one mission panel,
-//! one centred layer label, three survival vitals and the hotbar. Everything
-//! else goes through a single animated right-side field log.
+//! Stable retro-pixel HUD and overlay coordination.
+//!
+//! The normal play screen has four persistent roots only: mission, layer,
+//! vitals and hotbar. Full-screen UI (pause, crafting, guide, leaderboard,
+//! death/result) is coordinated so one screen cannot accidentally leave the
+//! HUD hidden or let gameplay continue underneath it.
 
 use std::fs;
 
@@ -9,13 +12,14 @@ use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy::time::Virtual;
 
+use super::{GuideState, LeaderboardState};
 use crate::body::{Body, DamageCause, LastDamageCause};
 use crate::items::{
     first_craftable, recipe_descriptions, CraftingMenu, LastEvent, PlayerInventory, SelectedSlot,
 };
 use crate::player::Player;
 use crate::survival::Survival;
-use crate::world::{BestTimes, CurrentDepth, DepthAnnouncement, RunStats, SessionTimes};
+use crate::world::{CurrentDepth, DepthAnnouncement, RunStats};
 
 pub struct HudPlugin;
 
@@ -41,11 +45,11 @@ impl Plugin for HudPlugin {
                     update_crafting_overlay,
                     update_pause_overlay,
                     update_death_overlay,
-                    update_win_overlay,
                     enforce_gameplay_hud_visibility,
                 )
                     .chain(),
-            );
+            )
+            .add_systems(PostUpdate, sync_overlay_pause);
     }
 }
 
@@ -61,8 +65,6 @@ struct UiFont(Option<Handle<Font>>);
 struct UxNoticeState {
     moved: bool,
     movement_hint_sent: bool,
-    thirst_band: u8,
-    hunger_band: u8,
     craft_ready: Option<String>,
 }
 
@@ -90,12 +92,8 @@ struct PauseOverlay;
 struct DeathOverlay;
 #[derive(Component)]
 struct DeathText;
-#[derive(Component)]
-struct WinOverlay;
-#[derive(Component)]
-struct WinText;
 
-#[derive(Component, Clone, Copy, PartialEq)]
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum VitalKind {
     Health,
     Hunger,
@@ -183,7 +181,6 @@ fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     spawn_crafting_overlay(&mut commands);
     spawn_pause_overlay(&mut commands);
     spawn_death_overlay(&mut commands);
-    spawn_win_overlay(&mut commands);
 }
 
 fn spawn_objective(commands: &mut Commands) {
@@ -226,14 +223,17 @@ fn spawn_objective(commands: &mut Commands) {
 
 fn spawn_layer_label(commands: &mut Commands) {
     commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(18.0),
-            left: Val::Px(0.0),
-            width: Val::Percent(100.0),
-            justify_content: JustifyContent::Center,
-            ..default()
-        })
+        .spawn((
+            GameplayHud,
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(18.0),
+                left: Val::Px(0.0),
+                width: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ))
         .with_children(|parent| {
             parent.spawn((
                 LayerText,
@@ -248,8 +248,6 @@ fn spawn_layer_label(commands: &mut Commands) {
 }
 
 fn spawn_vitals(commands: &mut Commands, asset_server: &AssetServer) {
-    const LEFT: f32 = 14.0;
-    const BOTTOM: f32 = 14.0;
     const PANEL_W: f32 = 302.0;
     const PANEL_H: f32 = 112.0;
     const BAR_X: f32 = 102.0;
@@ -258,100 +256,96 @@ fn spawn_vitals(commands: &mut Commands, asset_server: &AssetServer) {
     const SEG_H: f32 = 16.0;
     const ROW_H: f32 = 30.0;
 
-    commands.spawn((
-        GameplayHud,
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(LEFT),
-            bottom: Val::Px(BOTTOM),
-            width: Val::Px(PANEL_W),
-            height: Val::Px(PANEL_H),
-            ..default()
-        },
-        BackgroundColor(pixel_border()),
-    ));
-    commands.spawn((
-        GameplayHud,
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(LEFT + 3.0),
-            bottom: Val::Px(BOTTOM + 3.0),
-            width: Val::Px(PANEL_W - 6.0),
-            height: Val::Px(PANEL_H - 6.0),
-            ..default()
-        },
-        BackgroundColor(panel_bg()),
-    ));
-
-    let rows = [
-        (VitalKind::Health, "HEALTH"),
-        (VitalKind::Hunger, "HUNGER"),
-        (VitalKind::Thirst, "THIRST"),
-    ];
-
-    for (row, (kind, label)) in rows.into_iter().enumerate() {
-        let y = BOTTOM + PANEL_H - 31.0 - row as f32 * ROW_H;
-        commands.spawn((
+    commands
+        .spawn((
             GameplayHud,
-            ImageNode::new(asset_server.load(vital_icon(kind))),
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(LEFT + 11.0),
-                bottom: Val::Px(y - 1.0),
-                width: Val::Px(20.0),
-                height: Val::Px(20.0),
+                left: Val::Px(14.0),
+                bottom: Val::Px(14.0),
+                width: Val::Px(PANEL_W),
+                height: Val::Px(PANEL_H),
+                padding: UiRect::all(Val::Px(3.0)),
                 ..default()
             },
-        ));
-        commands.spawn((
-            GameplayHud,
-            Text::new(label),
-            TextFont {
-                font_size: 12.0,
-                ..default()
-            },
-            TextColor(Color::srgb(0.84, 0.82, 0.76)),
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(LEFT + 38.0),
-                bottom: Val::Px(y + 1.0),
-                ..default()
-            },
-        ));
-
-        for index in 0..10 {
-            commands.spawn((
-                GameplayHud,
-                VitalSegment { kind, index },
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(LEFT + BAR_X + index as f32 * (SEG_W + SEG_GAP)),
-                    bottom: Val::Px(y),
-                    width: Val::Px(SEG_W),
-                    height: Val::Px(SEG_H),
-                    ..default()
-                },
-                BackgroundColor(vital_color(kind)),
-            ));
-        }
-
-        commands.spawn((
-            GameplayHud,
-            VitalValue(kind),
-            Text::new("100%"),
-            TextFont {
-                font_size: 11.0,
-                ..default()
-            },
-            TextColor(Color::WHITE),
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(LEFT + 257.0),
-                bottom: Val::Px(y + 1.0),
-                ..default()
-            },
-        ));
-    }
+            BackgroundColor(pixel_border()),
+        ))
+        .with_children(|outer| {
+            outer
+                .spawn((
+                    Node {
+                        position_type: PositionType::Relative,
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(panel_bg()),
+                ))
+                .with_children(|panel| {
+                    let rows = [
+                        (VitalKind::Health, "HEALTH"),
+                        (VitalKind::Hunger, "HUNGER"),
+                        (VitalKind::Thirst, "THIRST"),
+                    ];
+                    for (row, (kind, label)) in rows.into_iter().enumerate() {
+                        let y = PANEL_H - 37.0 - row as f32 * ROW_H;
+                        panel.spawn((
+                            ImageNode::new(asset_server.load(vital_icon(kind))),
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: Val::Px(8.0),
+                                bottom: Val::Px(y - 1.0),
+                                width: Val::Px(20.0),
+                                height: Val::Px(20.0),
+                                ..default()
+                            },
+                        ));
+                        panel.spawn((
+                            Text::new(label),
+                            TextFont {
+                                font_size: 12.0,
+                                ..default()
+                            },
+                            TextColor(Color::srgb(0.84, 0.82, 0.76)),
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: Val::Px(35.0),
+                                bottom: Val::Px(y + 1.0),
+                                ..default()
+                            },
+                        ));
+                        for index in 0..10 {
+                            panel.spawn((
+                                VitalSegment { kind, index },
+                                Node {
+                                    position_type: PositionType::Absolute,
+                                    left: Val::Px(BAR_X - 3.0 + index as f32 * (SEG_W + SEG_GAP)),
+                                    bottom: Val::Px(y),
+                                    width: Val::Px(SEG_W),
+                                    height: Val::Px(SEG_H),
+                                    ..default()
+                                },
+                                BackgroundColor(vital_color(kind)),
+                            ));
+                        }
+                        panel.spawn((
+                            VitalValue(kind),
+                            Text::new("100%"),
+                            TextFont {
+                                font_size: 11.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: Val::Px(254.0),
+                                bottom: Val::Px(y + 1.0),
+                                ..default()
+                            },
+                        ));
+                    }
+                });
+        });
 }
 
 fn spawn_hotbar(commands: &mut Commands, asset_server: &AssetServer) {
@@ -561,7 +555,7 @@ fn spawn_pause_overlay(commands: &mut Commands) {
         ))
         .with_children(|overlay| {
             overlay.spawn((
-                Text::new("PAUSED / HELP\n\nEsc  Resume\nR  Restart run\nQ  Quit\n\nA/D or arrows  Move\nSpace  Jump\n1-9  Select item\nF  Use item\nC  Craft\nE  Attack\n\nMISSION\nDescend, recover the cargo, reach extraction."),
+                Text::new("PAUSED / QUICK HELP\n\nEsc  Resume\nG  Full walkthrough\nL  Session leaderboard\nR  Restart run\nQ  Quit\n\nA/D or arrows  Move\nSpace  Jump\n1-9  Select item\nF  Use item\nC  Craft\nE  Attack"),
                 TextFont {
                     font_size: 18.0,
                     ..default()
@@ -617,55 +611,18 @@ fn spawn_death_overlay(commands: &mut Commands) {
         });
 }
 
-fn spawn_win_overlay(commands: &mut Commands) {
-    commands
-        .spawn((
-            WinOverlay,
-            Node {
-                display: Display::None,
-                position_type: PositionType::Absolute,
-                top: Val::Px(0.0),
-                left: Val::Px(0.0),
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                row_gap: Val::Px(12.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.01, 0.03, 0.015, 0.96)),
-        ))
-        .with_children(|overlay| {
-            overlay.spawn((
-                Text::new("MISSION COMPLETE"),
-                TextFont {
-                    font_size: 44.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.48, 0.82, 0.44)),
-            ));
-            overlay.spawn((
-                WinText,
-                Text::new(""),
-                TextFont {
-                    font_size: 17.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.82, 0.79, 0.73)),
-            ));
-        });
-}
-
 fn assist_new_player(
     keyboard: Res<ButtonInput<KeyCode>>,
+    pause: Res<PauseMenuState>,
+    crafting: Res<CraftingMenu>,
+    guide: Res<GuideState>,
+    leaderboard: Res<LeaderboardState>,
     mut state: ResMut<UxNoticeState>,
     mut last: ResMut<LastEvent>,
 ) {
-    if state.moved {
+    if state.moved || pause.open || crafting.open || guide.open || leaderboard.open {
         return;
     }
-
     if keyboard.any_pressed([
         KeyCode::KeyA,
         KeyCode::KeyD,
@@ -675,7 +632,6 @@ fn assist_new_player(
         state.moved = true;
         return;
     }
-
     let unrelated = keyboard.any_just_pressed([
         KeyCode::KeyW,
         KeyCode::KeyS,
@@ -683,8 +639,6 @@ fn assist_new_player(
         KeyCode::KeyE,
         KeyCode::KeyF,
         KeyCode::KeyC,
-        KeyCode::KeyQ,
-        KeyCode::KeyR,
         KeyCode::Enter,
         KeyCode::Digit1,
         KeyCode::Digit2,
@@ -696,53 +650,24 @@ fn assist_new_player(
         KeyCode::Digit8,
         KeyCode::Digit9,
     ]);
-
     if unrelated && !state.movement_hint_sent {
         state.movement_hint_sent = true;
-        last.show("GUIDE  MOVE WITH A / D OR ARROW KEYS");
-    }
-}
-
-fn survival_band(value: f32, warning: f32, critical: f32) -> u8 {
-    if value <= critical {
-        2
-    } else if value <= warning {
-        1
-    } else {
-        0
+        last.show("GUIDE  MOVE WITH A / D OR ARROW KEYS  [G] WALKTHROUGH");
     }
 }
 
 fn emit_context_notices(
-    player: Query<&Survival, With<Player>>,
     inventory: Query<&PlayerInventory, With<Player>>,
+    pause: Res<PauseMenuState>,
+    crafting: Res<CraftingMenu>,
+    guide: Res<GuideState>,
+    leaderboard: Res<LeaderboardState>,
     mut state: ResMut<UxNoticeState>,
     mut last: ResMut<LastEvent>,
 ) {
-    let Ok(survival) = player.single() else {
+    if pause.open || crafting.open || guide.open || leaderboard.open {
         return;
-    };
-
-    let thirst = survival_band(survival.0.thirst(), 0.35, 0.12);
-    let hunger = survival_band(survival.0.hunger(), 0.35, 0.10);
-
-    if thirst > state.thirst_band {
-        if thirst == 2 {
-            last.show("DEHYDRATED  HEALTH IS FALLING - DRINK WATER");
-        } else if last.remaining <= 0.05 {
-            last.show("THIRST LOW  FIND WATER SOON");
-        }
     }
-    if hunger > state.hunger_band && last.remaining <= 0.05 {
-        if hunger == 2 {
-            last.show("STARVING  MOVEMENT HEAVILY REDUCED - EAT FOOD");
-        } else {
-            last.show("HUNGER LOW  MOVEMENT WILL SLOW");
-        }
-    }
-    state.thirst_band = thirst;
-    state.hunger_band = hunger;
-
     if let Ok(inventory) = inventory.single() {
         let ready = first_craftable(&inventory.0).map(|kind| kind.label().to_uppercase());
         if ready != state.craft_ready {
@@ -758,18 +683,19 @@ fn emit_context_notices(
 
 fn pause_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
+    guide: Res<GuideState>,
+    leaderboard: Res<LeaderboardState>,
     mut pause: ResMut<PauseMenuState>,
     mut crafting: ResMut<CraftingMenu>,
-    mut virtual_time: ResMut<Time<Virtual>>,
     mut player_velocity: Query<&mut LinearVelocity, With<Player>>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    if keyboard.just_pressed(KeyCode::Escape) {
+    if keyboard.just_pressed(KeyCode::Escape) && !guide.open && !leaderboard.open {
         if crafting.open {
             crafting.open = false;
-            return;
+        } else {
+            pause.open = !pause.open;
         }
-        pause.open = !pause.open;
     }
 
     if pause.open {
@@ -783,23 +709,16 @@ fn pause_controls(
             exit.write(AppExit::Success);
         }
     }
-
-    if pause.open || crafting.open {
-        virtual_time.pause();
-    } else {
-        virtual_time.unpause();
-    }
 }
 
 fn update_objective(stats: Res<RunStats>, mut text: Query<&mut Text, With<ObjectiveText>>) {
-    let Ok(mut text) = text.single_mut() else {
-        return;
-    };
-    **text = if stats.cargo_recovered {
-        "MISSION // 2 OF 2\nDELIVER CARGO TO EXTRACTION".to_string()
-    } else {
-        "MISSION // 1 OF 2\nDESCEND + RECOVER LOST CARGO".to_string()
-    };
+    if let Ok(mut text) = text.single_mut() {
+        **text = if stats.cargo_recovered {
+            "MISSION // 2 OF 2\nDELIVER CARGO TO EXTRACTION".to_string()
+        } else {
+            "MISSION // 1 OF 2\nDESCEND + RECOVER LOST CARGO".to_string()
+        };
+    }
 }
 
 fn update_layer_text(depth: Res<CurrentDepth>, mut text: Query<&mut Text, With<LayerText>>) {
@@ -874,10 +793,39 @@ fn update_hotbar(
     }
 }
 
+fn is_urgent_event(text: &str) -> bool {
+    text.contains("POISON")
+        || text.contains("DEHYDRATED")
+        || text.contains("STARVING")
+        || text.contains("TRAP")
+        || text.contains("BLEED")
+        || text.contains("ATTACK")
+}
+
+fn field_log_heading(text: &str) -> &'static str {
+    if text.starts_with("GUIDE") {
+        "GUIDE"
+    } else if is_urgent_event(text) {
+        "DANGER"
+    } else if text.starts_with("PICKUP") {
+        "DISCOVERED"
+    } else if text.starts_with("CRAFT") {
+        "CRAFTING"
+    } else {
+        "FIELD LOG"
+    }
+}
+
 fn update_field_log(
     time: Res<Time>,
     last: Res<LastEvent>,
     announcement: Res<DepthAnnouncement>,
+    player: Query<&Body, With<Player>>,
+    stats: Res<RunStats>,
+    pause: Res<PauseMenuState>,
+    crafting: Res<CraftingMenu>,
+    guide: Res<GuideState>,
+    leaderboard: Res<LeaderboardState>,
     mut frame: Query<&mut Node, With<FieldLogFrame>>,
     mut header: Query<&mut Text, (With<FieldLogHeader>, Without<FieldLogText>)>,
     mut text: Query<&mut Text, (With<FieldLogText>, Without<FieldLogHeader>)>,
@@ -886,28 +834,22 @@ fn update_field_log(
     let Ok(mut frame) = frame.single_mut() else {
         return;
     };
+    let dead = player.single().map(|body| body.0.is_dead()).unwrap_or(false);
+    if dead || stats.extracted || pause.open || crafting.open || guide.open || leaderboard.open {
+        frame.display = Display::None;
+        return;
+    }
 
-    let last_is_duplicate_objective = last.text.contains("OBJECTIVE") || last.text.contains("MISSION COMPLETE");
+    let duplicate_objective =
+        last.text.contains("OBJECTIVE") || last.text.contains("MISSION COMPLETE");
+    let urgent = last.remaining > 0.0 && is_urgent_event(&last.text);
 
-    let (remaining, total, heading, message) = if announcement.remaining > 0.0 {
+    let (remaining, total, heading, message) = if urgent && !duplicate_objective {
+        (last.remaining, 2.6, field_log_heading(&last.text), last.text.clone())
+    } else if announcement.remaining > 0.0 {
         (announcement.remaining, 2.5, "DEPTH", announcement.text.clone())
-    } else if last.remaining > 0.0 && !last_is_duplicate_objective {
-        let heading = if last.text.starts_with("GUIDE") {
-            "GUIDE"
-        } else if last.text.contains("DEHYDRATED")
-            || last.text.contains("STARVING")
-            || last.text.contains("TRAP")
-            || last.text.contains("BLEED")
-        {
-            "DANGER"
-        } else if last.text.starts_with("PICKUP") {
-            "DISCOVERED"
-        } else if last.text.starts_with("CRAFT") {
-            "CRAFTING"
-        } else {
-            "FIELD LOG"
-        };
-        (last.remaining, 2.6, heading, last.text.clone())
+    } else if last.remaining > 0.0 && !duplicate_objective {
+        (last.remaining, 2.6, field_log_heading(&last.text), last.text.clone())
     } else {
         frame.display = Display::None;
         return;
@@ -934,18 +876,17 @@ fn update_field_log(
 
 fn update_crafting_overlay(
     crafting: Res<CraftingMenu>,
+    guide: Res<GuideState>,
+    leaderboard: Res<LeaderboardState>,
     mut overlay: Query<&mut Node, With<CraftingOverlay>>,
     mut text: Query<&mut Text, With<CraftingText>>,
 ) {
     let Ok(mut overlay) = overlay.single_mut() else {
         return;
     };
-    overlay.display = if crafting.open {
-        Display::Flex
-    } else {
-        Display::None
-    };
-    if crafting.open {
+    let show = crafting.open && !guide.open && !leaderboard.open;
+    overlay.display = if show { Display::Flex } else { Display::None };
+    if show {
         if let Ok(mut text) = text.single_mut() {
             **text = format!(
                 "CRAFTING\n\n{}\n\n1 / 2 / 3 craft     C or Esc close",
@@ -957,10 +898,12 @@ fn update_crafting_overlay(
 
 fn update_pause_overlay(
     pause: Res<PauseMenuState>,
+    guide: Res<GuideState>,
+    leaderboard: Res<LeaderboardState>,
     mut overlay: Query<&mut Node, With<PauseOverlay>>,
 ) {
     if let Ok(mut overlay) = overlay.single_mut() {
-        overlay.display = if pause.open {
+        overlay.display = if pause.open && !guide.open && !leaderboard.open {
             Display::Flex
         } else {
             Display::None
@@ -986,7 +929,7 @@ fn update_death_overlay(
         if let Ok(mut text) = text.single_mut() {
             let reason = match cause.0 {
                 DamageCause::Trap => "Killed by a cave trap",
-                DamageCause::Enemy => "Killed by a crawler attack",
+                DamageCause::Enemy => "Killed by a cave creature",
                 DamageCause::Fall => {
                     if body.0.total_bleed_rate() > 0.0005 {
                         "Bled out after a hard fall"
@@ -1007,48 +950,53 @@ fn update_death_overlay(
     }
 }
 
-fn update_win_overlay(
-    stats: Res<RunStats>,
-    best: Res<BestTimes>,
-    session: Res<SessionTimes>,
-    mut overlay: Query<&mut Node, With<WinOverlay>>,
-    mut text: Query<&mut Text, With<WinText>>,
-) {
-    let Ok(mut overlay) = overlay.single_mut() else {
-        return;
-    };
-    if stats.extracted {
-        overlay.display = Display::Flex;
-        if let Ok(mut text) = text.single_mut() {
-            **text = format!(
-                "RUN TIME  {:.1}s\n\nTHIS SESSION\n{}\n\nPERSONAL BESTS\n{}\n\nR  Run again",
-                stats.elapsed_secs,
-                session.formatted(),
-                best.formatted()
-            );
-        }
-    } else {
-        overlay.display = Display::None;
-    }
-}
-
 fn enforce_gameplay_hud_visibility(
     player: Query<&Body, With<Player>>,
     stats: Res<RunStats>,
     pause: Res<PauseMenuState>,
     crafting: Res<CraftingMenu>,
+    guide: Res<GuideState>,
+    leaderboard: Res<LeaderboardState>,
     mut hud: Query<&mut Node, With<GameplayHud>>,
 ) {
-    let dead = player
-        .single()
-        .map(|body| body.0.is_dead())
-        .unwrap_or(false);
-    let show = !(dead || stats.extracted || pause.open || crafting.open);
+    let dead = player.single().map(|body| body.0.is_dead()).unwrap_or(false);
+    let show = !(dead
+        || stats.extracted
+        || pause.open
+        || crafting.open
+        || guide.open
+        || leaderboard.open);
     for mut node in &mut hud {
-        node.display = if show {
-            Display::Flex
-        } else {
-            Display::None
-        };
+        node.display = if show { Display::Flex } else { Display::None };
+    }
+}
+
+fn sync_overlay_pause(
+    player: Query<&Body, With<Player>>,
+    stats: Res<RunStats>,
+    pause: Res<PauseMenuState>,
+    guide: Res<GuideState>,
+    leaderboard: Res<LeaderboardState>,
+    mut crafting: ResMut<CraftingMenu>,
+    mut virtual_time: ResMut<Time<Virtual>>,
+    mut velocity: Query<&mut LinearVelocity, With<Player>>,
+) {
+    if guide.open || leaderboard.open {
+        crafting.open = false;
+    }
+    let dead = player.single().map(|body| body.0.is_dead()).unwrap_or(false);
+    let blocked = pause.open
+        || crafting.open
+        || guide.open
+        || leaderboard.open
+        || dead
+        || stats.extracted;
+    if blocked {
+        virtual_time.pause();
+        if let Ok(mut velocity) = velocity.single_mut() {
+            *velocity = LinearVelocity::ZERO;
+        }
+    } else {
+        virtual_time.unpause();
     }
 }
