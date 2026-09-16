@@ -1,37 +1,36 @@
 # Descent: Null
 
-An original 2D survival-exploration game about descending into a hostile underground, managing injuries and supplies, recovering mission cargo, and making it back out alive.
+An original 2D survival-exploration game about descending into a hostile underground, managing injuries and supplies, recovering mission cargo, and delivering it to extraction.
 
 ## Current build
 
-The project is in a **gameplay clarity / core-loop refinement pass**. The goal of the current work is to make the first five minutes understandable without filling the screen with instructions.
+The current build is deliberately optimized for a **first-time player**. The game should explain itself through play instead of assuming the player already understands the inventory, crafting, injuries, or objective.
 
 What is implemented now:
 
 - Bevy 0.17 + Avian 2D physics with jumping, falling, landing damage, coyote time, jump buffering and camera follow.
-- A procedurally generated four-layer cave that regenerates on every restart.
-- A two-part mission: **reach the cargo at the bottom, then return it to the EXIT at the surface**.
-- Catastrophic falls are fatal, so dropping straight to the bottom is no longer a shortcut.
-- Cave crawlers appear from layer 1 onward, notice the player from farther away, and the cargo chamber is guarded.
-- Spike hazards on deeper layers create real wounds and bleeding.
+- A four-layer cave built around a **guaranteed downward descent spine**. Random side ledges add loot/risk but cannot block the main route.
+- Falling is part of progression: ordinary controlled drops between wide ledges are expected, while reckless multi-layer falls can be fatal.
+- A two-step mission shown clearly in the top-left:
+  1. **Go down and recover the lost cargo.**
+  2. **Cross the bottom chamber and deliver it to the green extraction pad.**
+- The bottom chamber is guarded, so touching the cargo is not an instant win.
+- Cave crawlers become more common deeper down.
+- Spike hazards create real wounds and bleeding.
 - Rare **Null Surge** pickups temporarily increase movement acceleration.
 - A body simulation with bruises, lacerations, fractures, pain, bleeding, blood volume, unconsciousness and death.
 - Hunger, thirst and stamina affect survival without silently draining health.
-- A weight-limited backpack with a selectable 1-9 hotbar. The hotbar is slots; the `12` limit is explicitly labelled as **pack weight**, not slot count.
-- `F` uses the currently selected item instead of automatically choosing one for you.
-- `C` opens a dedicated crafting overlay. Recipes are selected with `1`, `2`, or `3` and state exactly what they make and why the item is useful.
-- A compact normal HUD: short mission text, depth, compact vitals and hotbar only.
-- Contextual warnings appear only when something needs attention, such as bleeding or a fracture.
-- First-run onboarding teaches movement, jumping, pickups and the hotbar progressively, then gets out of the way.
+- Every ordinary world pickup has its **name displayed above it** before pickup.
+- Pickup messages explain what an item is for (for example WATER restores thirst; BANDAGE stops bleeding; SCRAP is a crafting material).
+- A selectable 1-9 hotbar. Pressing a number visibly changes the highlighted slot and shows the selected item, quantity, action and purpose above the hotbar.
+- `F` uses the currently selected item. Crafting materials explicitly tell you to press `C` instead.
+- The `12` inventory limit is **pack weight**, not a number of hotbar slots; pack weight is shown separately in the top-right.
+- `C` opens a dedicated crafting overlay. Recipes are selected with `1`, `2`, or `3` and state what they make, what they need and why they are useful.
+- Progressive first-run onboarding teaches mission direction, movement, jumping/falling, pickups, hotbar selection and crafting.
 - `Esc` opens a pause/help menu with Resume, Restart, Quit and control instructions.
-- Death and mission-complete screens show run information and restore cleanly after restart.
-- Pixel art uses nearest-neighbour sampling so scaled sprites remain crisp.
-- The floating player nameplate was removed and the player presentation was made less stretched.
-- The existing original ambience is layered at several playback speeds and volumes for a less static soundscape.
-
-## Still to improve
-
-The next art milestone should replace the placeholder-quality character and cave source sprites with a unified original pixel-art set rather than continuing to compensate through scaling alone. Additional enemy archetypes, stronger sound effects, lighting/flashlight gameplay, richer powerups and handcrafted landmark rooms are also planned.
+- Contextual warnings say what is wrong and what item/action fixes it.
+- Pixel art uses nearest-neighbour filtering for crisp scaling.
+- The old static ambience playback has been replaced with an **original procedurally generated soundtrack** created at launch: evolving cave harmony, low pulses, sparse melody, metallic accents and a tension swell.
 
 See `docs/REBUILD_PLAN.md` for the gameplay-first roadmap.
 
@@ -57,4 +56,4 @@ cargo run --release
 
 ## Core loop
 
-Explore downward, collect only what you can carry, avoid or fight threats, treat injuries deliberately, craft supplies when needed, recover the cargo, then survive the climb back to the marked EXIT. Reaching the bottom is now the midpoint of the run rather than the win condition.
+Follow the wide ledges downward, scavenge labelled supplies, use the hotbar deliberately, manage wounds and survival pressure, choose optional side branches for extra resources, reach the guarded bottom chamber, recover the cargo, and deliver it across the chamber to extraction.
