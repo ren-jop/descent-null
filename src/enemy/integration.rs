@@ -244,7 +244,7 @@ fn tick_poison(
         poison.until_tick += POISON_TICK_INTERVAL;
         if let Ok(mut body) = player_body.single_mut() {
             body.0.apply_external_drain(POISON_DAMAGE_PER_TICK);
-            cause.0 = DamageCause::Poison;
+            cause.0 = DamageCause::Enemy;
         }
 
         if poison.remaining <= 2.1 && last.remaining <= 0.20 {
