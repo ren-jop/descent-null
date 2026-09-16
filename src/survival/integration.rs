@@ -5,7 +5,7 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
-use crate::body::Body;
+use crate::body::{Body, DamageCause, LastDamageCause};
 use crate::physics::CharacterController;
 
 use super::state::SurvivalState;
@@ -37,6 +37,7 @@ fn tick_survival(time: Res<Time>, mut query: Query<&mut Survival>) {
 fn apply_survival_consequences(
     time: Res<Time>,
     mut query: Query<(&Survival, &mut Body, &mut LinearVelocity), With<CharacterController>>,
+    mut cause: ResMut<LastDamageCause>,
 ) {
     let dt = time.delta_secs();
     for (survival, mut body, mut velocity) in &mut query {
@@ -58,6 +59,7 @@ fn apply_survival_consequences(
             let severity = 1.0 - survival.0.thirst() / CRITICAL_THIRST;
             body.0
                 .apply_external_drain(DEHYDRATION_BLOOD_DRAIN_PER_SEC * severity * dt);
+            cause.0 = DamageCause::Dehydration;
         }
     }
 }
