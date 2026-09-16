@@ -19,7 +19,7 @@ pub struct SessionTimes {
 
 impl SessionTimes {
     fn normalise(&mut self) {
-        self.records.retain(|record| record.seconds.is_finite() && record.seconds > 0.0);
+        self.records.retain(|record| record.seconds.is_finite() && *&record.seconds > 0.0);
         self.records.sort_by(|a, b| a.seconds.total_cmp(&b.seconds));
         self.records.truncate(MAX_RECORDS);
     }
@@ -59,11 +59,23 @@ impl SessionTimes {
     }
 }
 
+/// Temporary compatibility resource for the older mission-complete overlay.
+/// The actual leaderboard is session-only and lives in `SessionTimes`.
+#[derive(Resource, Default)]
+pub struct BestTimes;
+
+impl BestTimes {
+    pub fn formatted(&self) -> String {
+        "Session leaderboard: press L".to_string()
+    }
+}
+
 pub struct RecordsPlugin;
 
 impl Plugin for RecordsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SessionTimes>();
+        app.init_resource::<SessionTimes>()
+            .init_resource::<BestTimes>();
     }
 }
 
