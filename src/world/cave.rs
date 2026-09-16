@@ -38,7 +38,7 @@ pub struct DepthAnnouncement {
 }
 
 const ANNOUNCEMENT_SECONDS: f32 = 2.5;
-const EXTRACTION_RADIUS: f32 = 40.0;
+const EXTRACTION_RADIUS: f32 = 54.0;
 
 #[derive(Component)]
 struct Cargo;
@@ -103,10 +103,12 @@ fn generate_cave(commands: &mut Commands, asset_server: &AssetServer) {
         CaveObject,
         Sprite {
             image: asset_server.load("sprites/item_cargo.png"),
-            custom_size: Some(Vec2::splat(28.0)),
+            // The run objective should be immediately distinguishable from
+            // ordinary loot when the player finally reaches the bottom.
+            custom_size: Some(Vec2::splat(46.0)),
             ..default()
         },
-        Transform::from_xyz(300.0, floor_y + 40.0 + 14.0, 0.5),
+        Transform::from_xyz(300.0, floor_y + 40.0 + 23.0, 0.5),
     ));
 
     for layer in 0..LAYER_COUNT {
@@ -124,7 +126,7 @@ fn generate_cave(commands: &mut Commands, asset_server: &AssetServer) {
 
             if rng.gen_bool(0.7) {
                 let item = random_item_for_layer(&mut rng, layer as usize);
-                spawn_pickup(commands, asset_server, Vec2::new(x, y + 24.0), item);
+                spawn_pickup(commands, asset_server, Vec2::new(x, y + 28.0), item);
             }
 
             // enemies start appearing from layer 1 — the opening layer
@@ -143,7 +145,7 @@ fn generate_cave(commands: &mut Commands, asset_server: &AssetServer) {
                 let ledge_pos = Vec2::new(ledge_x, y + rng.gen_range(-30.0..40.0));
                 spawn_platform(commands, asset_server, ledge_pos, Vec2::new(110.0, 20.0), layer as usize);
                 let item = random_item_for_layer(&mut rng, layer as usize);
-                spawn_pickup(commands, asset_server, ledge_pos + Vec2::new(0.0, 24.0), item);
+                spawn_pickup(commands, asset_server, ledge_pos + Vec2::new(0.0, 28.0), item);
             }
         }
     }
@@ -218,7 +220,7 @@ fn spawn_pickup(commands: &mut Commands, asset_server: &AssetServer, pos: Vec2, 
         CaveObject,
         Sprite {
             image: asset_server.load(item.kind.sprite_path()),
-            custom_size: Some(Vec2::splat(16.0)),
+            custom_size: Some(Vec2::splat(24.0)),
             ..default()
         },
         Transform::from_xyz(pos.x, pos.y, 0.5),
