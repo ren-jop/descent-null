@@ -4,4 +4,4 @@ mod cave;
 mod records;
 
 pub use cave::{CavePlugin, CurrentDepth, DepthAnnouncement, RunStats};
-pub use records::{BestTimes, RecordsPlugin, SessionTimes};
+pub use records::{RecordsPlugin, RunRecord, SessionTimes};
