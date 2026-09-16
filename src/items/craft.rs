@@ -8,26 +8,30 @@ use super::item::{ItemKind, ItemStack};
 struct Recipe {
     inputs: &'static [(ItemKind, u32)],
     output: ItemStack,
+    purpose: &'static str,
 }
 
 const RECIPES: &[Recipe] = &[
     Recipe {
         inputs: &[(ItemKind::Scrap, 3), (ItemKind::Cloth, 1)],
         output: ItemStack { kind: ItemKind::Bandage, quantity: 1 },
+        purpose: "stops active bleeding",
     },
     Recipe {
         inputs: &[(ItemKind::Metal, 2), (ItemKind::Scrap, 1)],
         output: ItemStack { kind: ItemKind::Splint, quantity: 1 },
+        purpose: "stabilises a fracture and restores movement",
     },
     Recipe {
         inputs: &[(ItemKind::Cloth, 1), (ItemKind::Metal, 1), (ItemKind::Battery, 1)],
         output: ItemStack { kind: ItemKind::Medkit, quantity: 1 },
+        purpose: "restores blood volume and treats pain",
     },
 ];
 
-/// human-readable recipe list for the UI (see ui::spawn_recipe_panel) —
-/// "what crafts what and why" was invisible before, this is how the
-/// crafting panel knows what to show without duplicating the recipe data.
+/// Human-readable recipe list for the HUD. Every line states both the
+/// ingredients and the gameplay reason to make the item, so crafting is
+/// a decision rather than a memory test.
 pub fn recipe_descriptions() -> Vec<String> {
     RECIPES
         .iter()
@@ -38,7 +42,11 @@ pub fn recipe_descriptions() -> Vec<String> {
                 .map(|(kind, qty)| format!("{qty} {}", kind.label()))
                 .collect::<Vec<_>>()
                 .join(" + ");
-            format!("{inputs} -> {}", recipe.output.kind.label())
+            format!(
+                "{inputs} -> {}  •  {}",
+                recipe.output.kind.label(),
+                recipe.purpose
+            )
         })
         .collect()
 }
@@ -87,9 +95,11 @@ mod tests {
     }
 
     #[test]
-    fn recipe_descriptions_lists_every_recipe() {
+    fn recipe_descriptions_lists_every_recipe_and_why_it_matters() {
         let descriptions = recipe_descriptions();
         assert_eq!(descriptions.len(), RECIPES.len());
-        assert!(descriptions.iter().any(|d| d.contains("bandage")));
+        assert!(descriptions.iter().any(|d| d.contains("bandage") && d.contains("bleeding")));
+        assert!(descriptions.iter().any(|d| d.contains("splint") && d.contains("fracture")));
+        assert!(descriptions.iter().any(|d| d.contains("medkit") && d.contains("blood")));
     }
 }
