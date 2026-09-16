@@ -12,21 +12,22 @@ Highlights:
 - Four cave layers built around a guaranteed downward route, with optional side branches for extra risk/reward.
 - Controlled falling is expected; dangerous long falls can injure or kill.
 - Two-step mission: descend and recover cargo, then reach extraction.
-- Two enemy types: slower cave **Crawlers** and faster deep-layer **Skitters** that detect you earlier and pressure your legs.
+- Two enemy types: slower cave **Crawlers** and faster deep-layer **Silverfish** that detect you earlier and pressure your legs.
+- Silverfish bites poison the player for several seconds. Poison removes health in discrete timed ticks so it reads differently from bleeding or dehydration.
 - Spike traps and Null Surge movement boosts add pressure without obscuring the core route.
 - Body simulation with wounds, fractures, bleeding, blood volume, unconsciousness and death.
 - Survival uses **Health, Hunger and Thirst**. There is no separate stamina meter.
 - Hunger gradually reduces movement speed and, at critical starvation, starts draining health.
 - Thirst narrows vision and becomes a faster direct health threat at critical dehydration.
-- Hunger and thirst now interact: low hydration accelerates hunger loss, low food accelerates thirst loss, and having both low adds extra health pressure.
+- Hunger and thirst interact: low hydration accelerates hunger loss, low food accelerates thirst loss, and having both low adds extra health pressure.
 - Passive health regeneration is deliberately slow, so treatment and resource management matter between encounters.
 - Untreated lacerations/fractures bleed fast enough that treatment matters without becoming instant death.
 - A permanent `[G] WALKTHROUGH` prompt gives expo players a reliable place to learn the game. Press `G` at any time during a run to open a full step-by-step guide covering movement, pickups, item use, survival, crafting, enemies, objectives and session records.
-- The lightweight FIELD LOG still gives contextual warnings for movement, survival danger, crafting readiness and discoveries without constantly narrating play.
+- The FIELD LOG gives contextual warnings for movement, survival danger, crafting readiness and discoveries without constantly narrating play. Cards now linger longer before sliding away so first-time players have time to read them.
 - One larger mission panel lives at the top-left. Objective information is not duplicated elsewhere.
 - The current layer is always shown in large white SF Mono-style text at the true top-centre and updates directly from world state.
 - Pixel-style HUD: chunky framed panels, pixel icons, segmented coloured Health/Hunger/Thirst bars with numeric percentages, and a bordered 1-9 hotbar.
-- One compact animated right-side **FIELD LOG** slides in only for meaningful events such as entering a layer, discovering supplies, traps, crafting readiness, hunger/thirst warnings and other important state changes.
+- One compact animated right-side **FIELD LOG** slides in only for meaningful events such as entering a layer, discovering supplies, traps, poison, crafting readiness, hunger/thirst warnings and other important state changes.
 - A compact pixel **SESSION RECORDS** leaderboard lives in the bottom-right. Press `L` or click it to expand the full top-five board.
 - The leaderboard is **session-only**, which is intended for expo/shared-computer play. It resets when the app closes.
 - When a completed run qualifies for the top five, a retro name-entry screen appears. Type up to 12 letters/numbers/spaces, use Backspace to edit, then press Enter to save the result to the current session leaderboard.
@@ -83,4 +84,4 @@ cargo run --release
 
 ## Core loop
 
-Follow the wide ledges downward, collect supplies, manage wounds and the linked hunger/thirst system, survive Crawlers and Skitters, recover the guarded cargo at the bottom, and carry it to extraction. Press `G` whenever a new player needs the walkthrough. Fast successful runs compete for the shared top-five **current-session** leaderboard.
+Follow the wide ledges downward, collect supplies, manage wounds and the linked hunger/thirst system, survive Crawlers and poisonous Silverfish, recover the guarded cargo at the bottom, and carry it to extraction. Press `G` whenever a new player needs the walkthrough. Fast successful runs compete for the shared top-five **current-session** leaderboard.
