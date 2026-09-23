@@ -1,5 +1,8 @@
 # Descent: Null
 
+**Author:** Ren Jopson  
+**Project page:** https://rin677.github.io/descent-null/
+
 An original 2D survival-exploration simulation. You are a test subject
 in a hostile underground. The design is systemic: physics, body, hunger,
 inventory, enemies, and environment should all create consequences.
